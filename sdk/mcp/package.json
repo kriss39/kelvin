@@ -21,8 +21,8 @@
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "1.30.1",
-    "kelvin-rialo": "file:../typescript",
+    "@modelcontextprotocol/sdk": "1.31.0",
+    "kelvin-rialo": "^0.1.0",
     "zod": "4.6.5"
   },
   "devDependencies": {

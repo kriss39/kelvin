@@ -9,6 +9,7 @@
   <a href="https://github.com/kriss39/kelvin/actions/workflows/ci.yml"><img src="https://github.com/kriss39/kelvin/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <img src="https://img.shields.io/badge/license-Apache--2.0-0a6c8c" alt="Apache-2.0">
   <img src="https://img.shields.io/badge/Rialo-testnet-7048e8" alt="Rialo testnet">
+  <a href="https://www.npmjs.com/package/kelvin-rialo"><img src="https://img.shields.io/npm/v/kelvin-rialo?label=kelvin-rialo&color=d9480f" alt="kelvin-rialo on npm"></a>
 </p>
 
 **Live:** <https://kelvinscan.pages.dev> (testnet)
@@ -80,8 +81,8 @@ curl "http://127.0.0.1:8080/v1/testnet/address/8GFLC4J4h8AGGwku4JVzeWrkdY9oeWkZN
 | [docs/API.md](docs/API.md) | Conventions, paging, the live stream, examples in curl and JavaScript |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Pipeline, cursors, finality, storage design, decoding, conformance, testing |
 | [docs/OPERATIONS.md](docs/OPERATIONS.md) | Commands, configuration, deploying to Oracle Cloud, monitoring, maintenance |
-| [sdk/typescript](sdk/typescript/README.md) | TypeScript client: typed calls, history iterators, live subscriptions |
-| [sdk/mcp](sdk/mcp/README.md) | MCP server so AI agents can query Rialo history |
+| [sdk/typescript](sdk/typescript/README.md) | TypeScript client: typed calls, history iterators, live subscriptions. `npm install kelvin-rialo` |
+| [sdk/mcp](sdk/mcp/README.md) | MCP server so AI agents can query Rialo history. `npx -y kelvin-rialo-mcp` |
 | [brand/](brand/README.md) | Logo, colours and the link-preview card |
 | [`src/openapi.yaml`](src/openapi.yaml) | The API specification |
 
