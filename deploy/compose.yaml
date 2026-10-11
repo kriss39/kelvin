@@ -1,0 +1,48 @@
+# Kelvin on one server: Postgres, the indexer with its API, and a Cloudflare quick tunnel that
+# gives the API a public https://<random>.trycloudflare.com address without opening any port.
+# The quick-tunnel address changes when the tunnel restarts; a named tunnel on your own domain
+# replaces it later.
+x-logging: &logging
+  driver: json-file
+  options: { max-size: "20m", max-file: "5" }
+
+services:
+  db:
+    image: postgres:16.15-alpine3.24
+    environment:
+      POSTGRES_USER: kelvin
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-kelvin}
+      POSTGRES_DB: kelvin
+    # Sized for an Always Free Ampere A1 machine with 12 GB of memory.
+    command: [postgres, -c, shared_buffers=2GB, -c, effective_cache_size=6GB, -c, work_mem=32MB,
+              -c, synchronous_commit=off, -c, max_wal_size=4GB]
+    shm_size: 512m
+    volumes:
+      - ${KELVIN_DATA:-/srv/kelvin}/pg:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD, pg_isready, -U, kelvin]
+      interval: 5s
+      retries: 20
+    restart: unless-stopped
+    logging: *logging
+
+  kelvin:
+    image: kelvin:latest
+    depends_on:
+      db: { condition: service_healthy }
+    environment:
+      DATABASE_URL: postgres://kelvin:${POSTGRES_PASSWORD:-kelvin}@db:5432/kelvin
+      RUST_LOG: info
+    command: [run, --network, testnet, --api, 0.0.0.0:8080]
+    ports:
+      - 127.0.0.1:8080:8080
+    stop_grace_period: 30s
+    restart: unless-stopped
+    logging: *logging
+
+  tunnel:
+    image: cloudflare/cloudflared:2026.9.3
+    command: [tunnel, --no-autoupdate, --url, http://kelvin:8080]
+    depends_on: [kelvin]
+    restart: unless-stopped
+    logging: *logging

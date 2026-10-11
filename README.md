@@ -59,6 +59,14 @@ Other commands:
 `scripts/indexer.sh start | stop | status` wraps `run` for a laptop: it starts Docker if needed and
 keeps the Mac awake while indexing.
 
+## Deploying
+
+`deploy/compose.yaml` runs Postgres, Kelvin and a Cloudflare quick tunnel on one server.
+`deploy/deploy.sh user@host [--restore]` builds the arm64 image locally, ships it with the compose
+file over SSH, installs Docker if needed and starts the stack; `--restore` first copies the local
+database so the server resumes from the same cursors. It targets an Oracle Cloud Ampere A1
+machine running Ubuntu.
+
 ## API
 
 All paths are under `/v1/{network}`, where `network` is `testnet` or `devnet`.
