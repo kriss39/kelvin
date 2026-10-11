@@ -166,6 +166,20 @@ paths:
           content:
             text/event-stream:
               schema: { type: string }
+  /v1/{network}/activity:
+    get:
+      summary: The last hour on the network
+      description: Over the latest ~25,000 indexed blocks (about an hour) - transactions, failures, distinct fee payers, RLO moved, token transfers and the programs called (top 12). Recomputed at most every 30 s.
+      parameters: [{ $ref: "#/components/parameters/network" }]
+      responses:
+        "200": { description: Activity summary, content: { application/json: { schema: { type: object } } } }
+  /v1/{network}/address/{address}/activity:
+    get:
+      summary: An address's transactions per day and its top counterparties
+      description: "`days` lists UTC days with at least one indexed transaction; days the backfill has not reached yet are absent, not zero. `counterparties` are the six addresses with the most RLO transfers to or from this one."
+      parameters: [{ $ref: "#/components/parameters/network" }, { $ref: "#/components/parameters/address" }]
+      responses:
+        "200": { description: Activity, content: { application/json: { schema: { type: object } } } }
   /v1/{network}/rpc-conformance:
     get:
       summary: How the Rialo RPC behaves, checked hourly

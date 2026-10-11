@@ -6,8 +6,9 @@ use std::collections::{HashMap, VecDeque};
 use std::convert::Infallible;
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use axum::extract::{Path, Query, State};
@@ -57,6 +58,8 @@ struct Network {
     head: AtomicU64,
     /// Newly indexed head blocks, for `/stream` subscribers.
     updates: broadcast::Sender<Arc<Update>>,
+    /// `/activity` result and when it was computed; shared by all callers for `ACTIVITY_TTL`.
+    activity: Mutex<Option<(Instant, Value)>>,
 }
 
 #[derive(Clone)]
@@ -72,8 +75,13 @@ pub async fn serve(pool: PgPool, addr: SocketAddr, mut stop: watch::Receiver<boo
         sqlx::query_as("SELECT id, name, rpc_url FROM networks").fetch_all(&pool).await?;
     let mut networks = HashMap::new();
     for (id, name, url) in rows {
-        let n =
-            Arc::new(Network { id, rpc: Rpc::new(&url)?, head: AtomicU64::new(0), updates: broadcast::channel(256).0 });
+        let n = Arc::new(Network {
+            id,
+            rpc: Rpc::new(&url)?,
+            head: AtomicU64::new(0),
+            updates: broadcast::channel(256).0,
+            activity: Mutex::new(None),
+        });
         tokio::spawn({
             let n = n.clone();
             async move {
@@ -118,6 +126,8 @@ pub async fn serve(pool: PgPool, addr: SocketAddr, mut stop: watch::Receiver<boo
         .route("/v1/{net}/programs/{program}/txs", get(program_txs))
         .route("/v1/{net}/stream", get(live))
         .route("/v1/{net}/rpc-conformance", get(rpc_conformance))
+        .route("/v1/{net}/activity", get(activity))
+        .route("/v1/{net}/address/{address}/activity", get(address_activity))
         .layer(TimeoutLayer::with_status_code(StatusCode::SERVICE_UNAVAILABLE, REQUEST_TIMEOUT))
         .layer(CorsLayer::new().allow_origin(Any).allow_methods([Method::GET]))
         .layer(CompressionLayer::new())
@@ -959,6 +969,126 @@ async fn program_txs(
     let (keys, next) = p.finish(rows, |r| format!("{}:{}", r.0, r.1));
     let items = summaries(&st.pool, n.id, &keys, None).await?;
     Ok(cached(FRESH, List { items, next_cursor: next }))
+}
+
+// ---------- activity ----------
+
+/// About an hour of blocks at Rialo's ~7 blocks per second.
+const ACTIVITY_BLOCKS: i64 = 25_000;
+const ACTIVITY_TTL: Duration = Duration::from_secs(30);
+
+/// What happened on the network over the latest ~hour of indexed blocks: volumes, success rate,
+/// active signers and the mix of programs called. Computed at most every 30 s per network.
+async fn activity(State(st): State<AppState>, Path(net): Path<String>) -> ApiResult {
+    let n = network(&st, &net)?;
+    if let Some((at, v)) = n.activity.lock().expect("not poisoned").as_ref()
+        && at.elapsed() < ACTIVITY_TTL
+    {
+        return Ok(cached(30, v.clone()));
+    }
+    let tip: Option<(Option<i64>,)> = sqlx::query_as("SELECT tip_next FROM ingest_state WHERE network = $1")
+        .bind(n.id)
+        .fetch_optional(&st.pool)
+        .await?;
+    let Some((Some(tip),)) = tip else {
+        return Err(ApiError::NotFound(format!("{net} is not being indexed")));
+    };
+    let from = tip - ACTIVITY_BLOCKS;
+    let (blocks, t0, t1): (i64, Option<i64>, Option<i64>) = sqlx::query_as(
+        "SELECT count(*), min(block_time_s), max(block_time_s) FROM blocks WHERE network = $1 AND height >= $2",
+    )
+    .bind(n.id)
+    .bind(from)
+    .fetch_one(&st.pool)
+    .await?;
+    let (txs, failed, signers): (i64, i64, i64) = sqlx::query_as(
+        "SELECT count(*), count(*) FILTER (WHERE err IS NOT NULL), count(DISTINCT fee_payer)
+         FROM txs WHERE network = $1 AND height >= $2",
+    )
+    .bind(n.id)
+    .bind(from)
+    .fetch_one(&st.pool)
+    .await?;
+    let (rlo_moved, rlo_transfers, token_transfers): (String, i64, i64) = sqlx::query_as(
+        "SELECT coalesce(sum(amount) FILTER (WHERE mint IS NULL), 0)::text,
+                count(*) FILTER (WHERE mint IS NULL), count(*) FILTER (WHERE mint IS NOT NULL)
+         FROM transfers WHERE network = $1 AND height >= $2",
+    )
+    .bind(n.id)
+    .bind(from)
+    .fetch_one(&st.pool)
+    .await?;
+    let programs: Vec<(Vec<u8>, i64)> = sqlx::query_as(
+        "SELECT a.address, count(DISTINCT (i.height, i.idx)) FROM instructions i JOIN addresses a ON a.id = i.program
+         WHERE i.network = $1 AND i.height >= $2 AND i.inner_idx = -1
+         GROUP BY a.address ORDER BY 2 DESC LIMIT 12",
+    )
+    .bind(n.id)
+    .bind(from)
+    .fetch_all(&st.pool)
+    .await?;
+    let programs: Vec<Value> = programs
+        .into_iter()
+        .map(|(p, c)| {
+            let p = b58(&p);
+            json!({ "program": p, "program_name": decode::label(&p), "transactions": c })
+        })
+        .collect();
+    let v = json!({
+        "network": net,
+        "from_block": from,
+        "blocks": blocks,
+        "seconds": t1.zip(t0).map(|(a, b)| a - b),
+        "transactions": txs,
+        "failed": failed,
+        "active_signers": signers,
+        "rlo_moved": rlo_moved,
+        "rlo_transfers": rlo_transfers,
+        "token_transfers": token_transfers,
+        "programs": programs,
+    });
+    *n.activity.lock().expect("not poisoned") = Some((Instant::now(), v.clone()));
+    Ok(cached(30, v))
+}
+
+/// An address's transactions per UTC day and its most frequent RLO counterparties.
+async fn address_activity(State(st): State<AppState>, Path((net, address)): Path<(String, String)>) -> ApiResult {
+    let n = network(&st, &net)?;
+    let key: [u8; 32] = parse_key(&address, "address")?;
+    let Some(id) = address_id(&st.pool, &key).await? else {
+        return Ok(cached(FRESH, json!({ "days": [], "counterparties": [] })));
+    };
+    let days: Vec<(i64, i64)> = sqlx::query_as(
+        "SELECT b.block_time_s / 86400, count(*) FROM tx_accounts ta
+         JOIN blocks b ON b.network = ta.network AND b.height = ta.height
+         WHERE ta.network = $1 AND ta.address = $2 GROUP BY 1 ORDER BY 1",
+    )
+    .bind(n.id)
+    .bind(id)
+    .fetch_all(&st.pool)
+    .await?;
+    type Counterparty = (Vec<u8>, i64, String, String);
+    let counterparties: Vec<Counterparty> = sqlx::query_as(
+        "WITH t AS (
+            SELECT CASE WHEN source = $2 THEN dest ELSE source END AS other, source = $2 AS out, amount
+            FROM transfers WHERE network = $1 AND (source = $2 OR dest = $2) AND source <> dest AND mint IS NULL)
+         SELECT a.address, count(*), coalesce(sum(amount) FILTER (WHERE NOT out), 0)::text,
+                coalesce(sum(amount) FILTER (WHERE out), 0)::text
+         FROM t JOIN addresses a ON a.id = t.other GROUP BY a.address ORDER BY 2 DESC LIMIT 6",
+    )
+    .bind(n.id)
+    .bind(id)
+    .fetch_all(&st.pool)
+    .await?;
+    Ok(cached(
+        60,
+        json!({
+            "days": days.into_iter().map(|(d, c)| json!({ "day": iso8601(d * 86_400)[..10].to_owned(), "transactions": c })).collect::<Vec<_>>(),
+            "counterparties": counterparties.into_iter().map(|(a, c, rin, rout)| json!({
+                "address": b58(&a), "transfers": c, "received": rin, "sent": rout,
+            })).collect::<Vec<_>>(),
+        }),
+    ))
 }
 
 // ---------- rpc conformance ----------

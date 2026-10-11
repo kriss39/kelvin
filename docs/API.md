@@ -81,6 +81,13 @@ es.addEventListener("tx", (e) => {
 });
 ```
 
+## Activity
+
+- `GET /activity`: the last hour on the network (about 25,000 blocks): transactions, failures,
+  distinct fee payers, RLO moved, token transfers and the programs called.
+- `GET /address/{address}/activity`: the address's transactions per UTC day and its six most
+  frequent RLO counterparties. Days the backfill has not reached yet are absent, not zero.
+
 ## Status and RPC checks
 
 - `GET /status`: chain head, indexed tip and lag, backfill progress, the oldest block the RPC

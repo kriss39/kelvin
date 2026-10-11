@@ -1,7 +1,7 @@
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="brand/kelvin-logo-dark.png">
-    <img src="brand/kelvin-logo-light.png" alt="kelvin: Rialo history, down to the last kelvin" width="460">
+    <img src="brand/kelvin-logo-light.png" alt="Kelvin: Rialo history, down to the last kelvin" width="460">
   </picture>
 </p>
 
@@ -47,7 +47,8 @@ Working on testnet; devnet next.
 - **Decoding** of System, Compute Budget, Token-2022 / SPL Token, Associated Token and oracle
   instructions: 98.9% of instructions; the rest keep their raw data.
 - **API** with OpenAPI docs, a live stream and hourly RPC conformance checks.
-- **Explorer** at `/`: live feed, activity heat chart, address, transaction and block pages.
+- **Explorer** at `/`: live feed, the last hour by program, an activity heat chart, and address
+  (daily activity, top counterparties), transaction and block pages.
 
 ## Quick start
 

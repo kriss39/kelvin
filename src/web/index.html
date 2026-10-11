@@ -200,6 +200,7 @@ button.btn:disabled { opacity: 0.45; cursor: default; }
 .kpis > div { padding: 0.9rem 1.1rem; display: grid; gap: 0.1rem; border-left: 1px solid var(--line); }
 .kpis > div:first-child { border-left: 0; }
 .kpis .k { font-size: 0.72rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+.kpis .v, .readouts .v { min-width: 0; overflow-wrap: anywhere; }
 .kpis .v { font-size: 1.35rem; font-weight: 750; font-stretch: 108%; font-variant-numeric: tabular-nums; }
 .kpis .v.ice { color: var(--ice); }
 .kpis .v.heat { color: var(--heat); }
@@ -219,12 +220,51 @@ pre.logs { margin: 0; padding: 1rem 1.1rem; font-family: var(--mono); font-size:
 .flow:last-child { border-bottom: 0; }
 .flow .arrow { color: var(--muted); }
 
+/* ---------- activity ---------- */
+.mix { display: flex; height: 14px; border-radius: 7px; overflow: hidden; background: var(--raised); }
+.mix i { display: block; height: 100%; background: var(--pc); }
+.mix i + i { box-shadow: inset 2px 0 0 var(--surface); }
+.mixlist { list-style: none; margin: 0.9rem 0 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 15rem), 1fr)); gap: 0.45rem 1.5rem; font-size: 0.84rem; }
+.mixlist li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 0.5rem; align-items: center; }
+.mixlist .sw { width: 0.7rem; height: 0.7rem; border-radius: 3px; background: var(--pc); }
+.mixlist .n { color: var(--muted); font-variant-numeric: tabular-nums; }
+.pair { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 1.5rem; align-items: start; }
+.axisrow { display: flex; justify-content: space-between; margin-top: 0.35rem; font-family: var(--mono); font-size: 0.7rem; color: var(--muted); }
+.days svg { display: block; width: 100%; height: 110px; }
+.days .bar { fill: var(--ice); }
+.days .gap { fill: url(#hatch); }
+.days .axis { fill: var(--muted); font-family: var(--mono); font-size: 10px; }
+.cp { list-style: none; margin: 0; padding: 0; }
+.cp li { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; gap: 0.7rem; align-items: center; padding: 0.55rem 1.1rem; border-bottom: 1px solid var(--line); font-size: 0.85rem; }
+.cp li:last-child { border-bottom: 0; }
+.cp .ident { width: 28px; height: 28px; border-radius: 7px; overflow: hidden; display: block; }
+.cp .r { text-align: right; font-family: var(--mono); font-size: 0.78rem; white-space: nowrap; }
+pre.json { margin: 0; padding: 1rem 1.1rem; font-family: var(--mono); font-size: 0.76rem; line-height: 1.55; overflow: auto; max-height: 32rem; }
+pre.json .k { color: var(--c-oracle); } pre.json .s { color: var(--c-system); } pre.json .n { color: var(--c-ata); } pre.json .b { color: var(--c-tokenomics); }
+
+/* ---------- quick-view drawer ---------- */
+[data-sig] { cursor: pointer; }
+.feed li[data-sig]:hover { background: var(--raised); }
+.drawer-back { position: fixed; inset: 0; z-index: 40; background: rgb(4 10 15 / 0.45); opacity: 0; transition: opacity 0.2s; }
+.drawer { position: fixed; top: 0; right: 0; bottom: 0; z-index: 41; width: min(36rem, 100%); background: var(--bg); border-left: 1px solid var(--line);
+          box-shadow: -18px 0 48px rgb(0 0 0 / 0.22); transform: translateX(100%); transition: transform 0.22s ease; display: flex; flex-direction: column; padding-top: env(safe-area-inset-top, 0px); }
+.drawer::before { content: ""; height: 3px; background: var(--thermal); flex: none; }
+.drawer.open { transform: none; }
+.drawer-back.open { opacity: 1; }
+.drawer > header { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; padding: 0.9rem 1.1rem; border-bottom: 1px solid var(--line); background: var(--surface); }
+.drawer > header h2 { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
+.drawer .actions { display: flex; gap: 0.5rem; align-items: center; flex: none; }
+.drawer .actions a.btn { font-size: 0.82rem; font-weight: 600; padding: 0.4rem 0.8rem; border: 1px solid var(--line); border-radius: 8px; color: var(--ink); background: var(--surface); }
+.drawer .actions a.btn:hover { border-color: var(--ice); text-decoration: none; }
+.drawer #drawer-body { overflow-y: auto; padding: 1rem; display: grid; gap: 1rem; align-content: start; padding-bottom: calc(1rem + env(safe-area-inset-bottom, 0px)); }
+@media (prefers-reduced-motion: reduce) { .drawer, .drawer-back { transition: none; } }
+
 footer.foot { max-width: 74rem; margin: 0 auto; padding: 1.5rem 1rem 2.5rem; border-top: 1px solid var(--line); font-size: 0.82rem; color: var(--muted); display: flex; gap: 0.5rem 1.5rem; flex-wrap: wrap; align-items: center; }
 footer.foot .brand b { font-size: 1rem; }
 footer.foot .brand svg { width: 20px; height: 20px; }
 
 @media (max-width: 60rem) {
-  .hero, .cols { grid-template-columns: 1fr; }
+  .hero, .cols, .pair { grid-template-columns: 1fr; }
   .readouts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .readouts > div:nth-child(3) { border-left: 0; }
   .readouts > div:nth-child(n+3) { border-top: 1px solid var(--line); }
@@ -243,6 +283,7 @@ footer.foot .brand svg { width: 20px; height: 20px; }
 </head>
 <body>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs><pattern id="hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" style="fill:var(--raised)"/><rect width="2.5" height="6" style="fill:var(--hatch)"/></pattern></defs>
   <symbol id="mark" viewBox="0 0 64 64">
     <rect x="0.5" y="0.5" width="63" height="63" rx="14.5" fill="#0e1d29" stroke="#2b4152"/>
     <g stroke-linecap="round" stroke-width="3"><path d="M13 17.5h5" stroke="#ff922b"/><path d="M15 25h3" stroke="#f06595"/><path d="M13 32.5h5" stroke="#9775fa"/><path d="M15 40h3" stroke="#5c7cfa"/><path d="M13 47.5h5" stroke="#3bc9db"/></g>
@@ -251,7 +292,7 @@ footer.foot .brand svg { width: 20px; height: 20px; }
 </svg>
 <div class="bar">
   <div class="bar-in">
-    <a class="brand" href="#/" aria-label="Kelvin home"><svg aria-hidden="true"><use href="#mark"/></svg><b>kelvin</b></a>
+    <a class="brand" href="#/" aria-label="Kelvin home"><svg aria-hidden="true"><use href="#mark"/></svg><b>Kelvin</b></a>
     <select class="net" id="net" aria-label="Network"><option value="testnet">testnet</option><option value="devnet">devnet</option></select>
     <form class="search" id="search" role="search">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>
@@ -262,8 +303,13 @@ footer.foot .brand svg { width: 20px; height: 20px; }
   </div>
 </div>
 <main id="view" aria-live="polite"></main>
+<div class="drawer-back" id="drawer-back" hidden></div>
+<aside class="drawer" id="drawer" role="dialog" aria-modal="true" aria-labelledby="drawer-title" hidden>
+  <header><h2 id="drawer-title">Transaction</h2><div class="actions"><a class="btn" id="drawer-full" href="#/">Full page</a><button class="btn" type="button" id="drawer-close" aria-label="Close">Close</button></div></header>
+  <div id="drawer-body"></div>
+</aside>
 <footer class="foot">
-  <a class="brand" href="#/"><svg aria-hidden="true"><use href="#mark"/></svg><b>kelvin</b></a>
+  <a class="brand" href="#/"><svg aria-hidden="true"><use href="#mark"/></svg><b>Kelvin</b></a>
   <span>Rialo history, down to the last kelvin. Amounts in RLO; 1 RLO = 10⁹ kelvin.</span>
   <a href="#/rpc">RPC checks</a><a href="/docs">API docs</a>
 </footer>
@@ -298,6 +344,13 @@ footer.foot .brand svg { width: 20px; height: 20px; }
     const k = BigInt(kelvin), neg = k < 0n, a = neg ? -k : k;
     const w = a / 1000000000n, f = (a % 1000000000n).toString().padStart(9, "0").replace(/0+$/, "");
     return (neg ? "−" : "") + w.toLocaleString("en-US") + (f ? "." + f : "");
+  };
+  // Short RLO figure for tiles (3.996B, 12.4M, 6,067.02, 0.0085); the exact value goes in the title.
+  const rloShort = (kelvin) => {
+    const v = Number(BigInt(kelvin)) / 1e9, a = Math.abs(v);
+    const s = a >= 1e9 ? (v / 1e9).toFixed(3) + "B" : a >= 1e6 ? (v / 1e6).toFixed(2) + "M" : a >= 1e3 ? v.toLocaleString("en-US", { maximumFractionDigits: 2 })
+      : a >= 1 ? v.toLocaleString("en-US", { maximumFractionDigits: 4 }) : v === 0 ? "0" : v.toPrecision(3);
+    return `<span title="${esc(rlo(kelvin))} RLO">${s}</span>`;
   };
   const ago = (ms) => {
     const s = Math.max(0, Math.round((Date.now() - ms) / 1000));
@@ -422,6 +475,12 @@ footer.foot .brand svg { width: 20px; height: 20px; }
         <div class="readouts" id="readouts"><div><span class="k">Loading</span><span class="v">…</span></div></div>
         <div class="totals" id="totals"></div>
       </section>
+      <section class="card" id="hour">
+        <header><h2>The last hour on Rialo</h2><span class="note" id="hournote">Loading…</span></header>
+        <div class="kpis" id="hourkpis"></div>
+        <div class="body"><div class="mix" id="mix"></div><ul class="mixlist" id="mixlist"></ul>
+          <div class="note" style="margin-top:0.7rem">Share of transactions calling each program; a transaction can call several. Compute-budget settings are left out.</div></div>
+      </section>
       <section class="card">
         <header><h2>Block heights</h2><span class="note" id="rulernote"></span></header>
         <div class="body"><div class="track" id="track"></div><div class="ticks" id="ticks"></div>
@@ -445,13 +504,16 @@ footer.foot .brand svg { width: 20px; height: 20px; }
     const t = setInterval(refresh, 5000);
     onLeave(() => clearInterval(t));
     proof();
+    lastHour();
+    const th = setInterval(lastHour, 30000);
+    onLeave(() => clearInterval(th));
 
     const txsEl = document.getElementById("txs"), blocksEl = document.getElementById("blocks");
     const txRow = (t, fresh) => {
       const x = t.transfers[0];
       const sub = t.status === "failed" ? `<span class="status bad">${esc(reason(t.error))}</span>` : x ? `${addr(x.from)} → ${addr(x.to)}` : detailTags(t);
       const fam = family(mainIx(t));
-      return `<li class="${fam} ${fresh ? "fresh" : ""}"><span class="dot ${fam}" title="${esc(mainIx(t)?.program_name || "program")}"></span>
+      return `<li class="${fam} ${fresh ? "fresh" : ""}" ${clickable(t.signature)}><span class="dot ${fam}" title="${esc(mainIx(t)?.program_name || "program")}"></span>
         <span><span class="what">${esc(headline(t))}</span>${x ? ` <span class="mono">${amount(x)}</span>` : ""}</span>
         <span class="r"><span data-ms="${t.time_ms}">${ago(t.time_ms)}</span><br>${txLink(t.signature)}</span>
         <span class="sub">${sub}</span></li>`;
@@ -518,6 +580,28 @@ footer.foot .brand svg { width: 20px; height: 20px; }
     } catch (e) { el.innerHTML = `<span class="eyebrow">One address, two answers</span><div class="note">${esc(e.message)}</div>`; }
   }
 
+  async function lastHour() {
+    let a;
+    try { a = await api("/activity"); } catch (e) { const n = document.getElementById("hournote"); if (n) n.textContent = e.message; return; }
+    const k = document.getElementById("hourkpis");
+    if (!k) return;
+    const ok = a.transactions ? ((a.transactions - a.failed) / a.transactions) * 100 : 0;
+    k.innerHTML = `
+      <div style="--rc:var(--t2)"><span class="k">Transactions</span><span class="v">${fmt(a.transactions)}</span><span class="s">${(a.transactions / Math.max(1, a.seconds || 3600) * 60).toFixed(0)} per minute</span></div>
+      <div style="--rc:${ok >= 90 ? "var(--ok)" : "var(--t5)"}"><span class="k">Succeeded</span><span class="v">${ok.toFixed(1)}%</span><span class="s">${fmt(a.failed)} failed</span></div>
+      <div style="--rc:var(--c-system)"><span class="k">Active signers</span><span class="v">${fmt(a.active_signers)}</span><span class="s">distinct fee payers</span></div>
+      <div style="--rc:var(--t6)"><span class="k">RLO moved</span><span class="v">${rloShort(a.rlo_moved)}</span><span class="s">in ${fmt(a.rlo_transfers)} transfers</span></div>
+      <div style="--rc:var(--c-token)"><span class="k">Token transfers</span><span class="v">${fmt(a.token_transfers)}</span><span class="s">mints, burns and transfers</span></div>`;
+    const progs = a.programs.filter((p) => p.program_name !== "ComputeBudget");
+    const total = progs.reduce((s, p) => s + p.transactions, 0) || 1;
+    const top = progs.slice(0, 7), rest = progs.slice(7).reduce((s, p) => s + p.transactions, 0);
+    const items = top.map((p) => ({ cls: family(p), name: p.program_name || short(p.program, 4, 4), href: `#/address/${p.program}`, n: p.transactions }));
+    if (rest) items.push({ cls: "p-other", name: "Other programs", n: rest });
+    document.getElementById("mix").innerHTML = items.map((i) => `<i class="${i.cls}" style="width:${(i.n / total) * 100}%" title="${esc(i.name)}: ${fmt(i.n)}"></i>`).join("");
+    document.getElementById("mixlist").innerHTML = items.map((i) => `<li class="${i.cls}"><span class="sw"></span><span>${i.href ? `<a href="${i.href}">${esc(i.name)}</a>` : esc(i.name)}</span><span class="n">${fmt(i.n)} · ${((i.n / total) * 100).toFixed(0)}%</span></li>`).join("");
+    document.getElementById("hournote").textContent = `blocks ${fmt(a.from_block)}–${fmt(a.from_block + a.blocks - 1)} · ${Math.round((a.seconds || 0) / 60)} min`;
+  }
+
   function renderStatus(s) {
     const el = document.getElementById("readouts");
     if (!el) return;
@@ -574,11 +658,15 @@ footer.foot .brand svg { width: 20px; height: 20px; }
         <div class="kpis">
           <div style="--rc:var(--c-system)"><span class="k">Kelvin has</span><span class="v ice">${fmt(s.transaction_count)}</span><span class="s">transactions</span></div>
           <div style="--rc:var(--heat)"><span class="k">Rialo RPC shows</span><span class="v heat">${Math.min(20, s.transaction_count)}</span><span class="s">${s.transaction_count > 20 ? (share < 0.1 ? "under 0.1" : share.toFixed(1)) + "% of the history" : "all of it, for now"}</span></div>
-          <div style="--rc:var(--t6)"><span class="k">Balance</span><span class="v">${s.balance != null ? rlo(s.balance) : "–"}</span><span class="s">RLO, live from the RPC</span></div>
-          <div style="--rc:var(--ok)"><span class="k">Received</span><span class="v">${flows.received ? rlo(flows.received.total) : "0"}</span><span class="s">RLO in ${fmt(flows.received?.count || 0)} transfers</span></div>
-          <div style="--rc:var(--t4)"><span class="k">Sent</span><span class="v">${flows.sent ? rlo(flows.sent.total) : "0"}</span><span class="s">RLO in ${fmt(flows.sent?.count || 0)} transfers</span></div>
+          <div style="--rc:var(--t6)"><span class="k">Balance</span><span class="v">${s.balance != null ? rloShort(s.balance) : "–"}</span><span class="s">RLO, live from the RPC</span></div>
+          <div style="--rc:var(--ok)"><span class="k">Received</span><span class="v">${flows.received ? rloShort(flows.received.total) : "0"}</span><span class="s">RLO in ${fmt(flows.received?.count || 0)} transfers</span></div>
+          <div style="--rc:var(--t4)"><span class="k">Sent</span><span class="v">${flows.sent ? rloShort(flows.sent.total) : "0"}</span><span class="s">RLO in ${fmt(flows.sent?.count || 0)} transfers</span></div>
         </div>
         ${s.first_seen ? `<div class="totals"><span>First seen <b>${when(s.first_seen.time)}</b> in block ${blockLink(s.first_seen.block)}</span><span>Last seen <b>${when(s.last_seen.time)}</b> in block ${blockLink(s.last_seen.block)}</span></div>` : ""}
+      </section>
+      <section class="pair">
+        <div class="card days"><header><h2>Activity by day</h2><span class="note" id="daysnote"></span></header><div class="body"><svg id="days" viewBox="0 0 1000 100" preserveAspectRatio="none" role="img" aria-label="Transactions per day"></svg><div class="axisrow"><span id="dayfirst"></span><span id="daylast"></span></div></div></div>
+        <div class="card"><header><h2>Top counterparties</h2><span class="note">by RLO transfers</span></header><ul class="cp" id="cp"><li class="empty">Loading…</li></ul></div>
       </section>
       <section class="card">
         <header>
@@ -591,6 +679,7 @@ footer.foot .brand svg { width: 20px; height: 20px; }
         <div class="tablewrap"><table><thead id="thead"></thead><tbody id="rows"></tbody></table></div>
         <div class="more"><button class="btn" type="button" id="more">Load more</button></div>
       </section>`;
+    addressActivity(a);
     let tab = "txs", order = "desc", cursor = null, loading = false;
     const rows = document.getElementById("rows"), more = document.getElementById("more");
     const head = () => {
@@ -603,11 +692,11 @@ footer.foot .brand svg { width: 20px; height: 20px; }
     const txRow = (t, fresh) => {
       const n = net(t);
       const amt = n === 0n ? "" : `<span class="${n > 0n ? "in" : ""}">${n > 0n ? "+" : ""}${rlo(n.toString())}</span>`;
-      return `<tr class="${fresh ? "fresh" : ""}">${timeCell(t)}<td><b>${esc(headline(t))}</b>${t.role?.signer ? ` <span class="tag signer">signer</span>` : ""}<div>${detailTags(t)}</div></td><td>${txLink(t.signature)}</td><td>${blockLink(t.block)}</td><td class="amt">${amt}</td><td>${statusTag(t.status)}</td></tr>`;
+      return `<tr class="${fresh ? "fresh" : ""}" ${clickable(t.signature)}>${timeCell(t)}<td><b>${esc(headline(t))}</b>${t.role?.signer ? ` <span class="tag signer">signer</span>` : ""}<div>${detailTags(t)}</div></td><td>${txLink(t.signature)}</td><td>${blockLink(t.block)}</td><td class="amt">${amt}</td><td>${statusTag(t.status)}</td></tr>`;
     };
     const trRow = (t) => {
       const other = t.direction === "out" ? t.to : t.from;
-      return `<tr>${timeCell(t)}<td>${t.direction === "out" ? "to" : `<span class="in">from</span>`}</td><td>${addr(other)}</td><td>${txLink(t.signature)}</td><td class="amt ${t.direction === "in" ? "in" : ""}">${t.direction === "out" ? "−" : "+"}${amount(t)}</td></tr>`;
+      return `<tr ${clickable(t.signature)}>${timeCell(t)}<td>${t.direction === "out" ? "to" : `<span class="in">from</span>`}</td><td>${addr(other)}</td><td>${txLink(t.signature)}</td><td class="amt ${t.direction === "in" ? "in" : ""}">${t.direction === "out" ? "−" : "+"}${amount(t)}</td></tr>`;
     };
     async function load(reset) {
       if (loading) return;
@@ -643,44 +732,145 @@ footer.foot .brand svg { width: 20px; height: 20px; }
     ticking();
   }
 
+  async function addressActivity(a) {
+    let act, st;
+    try { [act, st] = await Promise.all([api(`/address/${a}/activity`), api("/status")]); } catch (e) { return; }
+    const svg = document.getElementById("days");
+    if (!svg) return;
+    // Days between the backfill frontier and where the follower started are not indexed yet.
+    let gapFrom = null, gapTo = null;
+    try {
+      if (!st.backfill.complete) {
+        const [f, t] = await Promise.all([api(`/blocks/${st.backfill.next - 1}`), api(`/blocks/${st.backfill.until + 1}`)]);
+        gapFrom = f.time.slice(0, 10); gapTo = t.time.slice(0, 10);
+      }
+    } catch (e) {}
+    const byDay = new Map(act.days.map((d) => [d.day, d.transactions]));
+    const first = act.days[0]?.day, last = act.days.at(-1)?.day;
+    if (!first) { svg.outerHTML = `<div class="empty">No activity indexed yet.</div>`; return; }
+    const days = [];
+    for (let d = new Date(first + "T00:00:00Z"); d <= new Date(last + "T00:00:00Z"); d = new Date(d.getTime() + 86400000)) days.push(d.toISOString().slice(0, 10));
+    const max = Math.max(1, ...act.days.map((d) => d.transactions));
+    const w = 1000 / days.length;
+    svg.innerHTML = days.map((d, i) => {
+      const n = byDay.get(d) || 0;
+      const pending = gapFrom && d > gapFrom && d < gapTo && !n;
+      if (pending) return `<rect class="gap" x="${i * w + 1}" y="10" width="${Math.max(1, w - 2)}" height="90"><title>${d}: not indexed yet</title></rect>`;
+      const h = n ? Math.max(3, (n / max) * 90) : 0;
+      const ratio = n / max;
+      const cls = ratio > 0.75 ? "h6b" : ratio > 0.5 ? "h5b" : ratio > 0.3 ? "h4b" : ratio > 0.15 ? "h3b" : ratio > 0.05 ? "h2b" : "h1b";
+      return n ? `<rect class="bar ${cls}" x="${i * w + 1}" y="${100 - h}" width="${Math.max(1, w - 2)}" height="${h}"><title>${d}: ${fmt(n)} transactions</title></rect>` : "";
+    }).join("");
+    document.getElementById("dayfirst").textContent = first;
+    document.getElementById("daylast").textContent = last;
+    svg.closest(".card").classList.add("chart");
+    document.getElementById("daysnote").textContent = `busiest day ${fmt(max)}` + (gapFrom ? " · hatched: not indexed yet" : "");
+    const cp = document.getElementById("cp");
+    cp.innerHTML = act.counterparties.length ? act.counterparties.map((c) => `<li>${identicon(c.address)}<span>${addr(c.address)}<br><span class="note">${fmt(c.transfers)} transfer${c.transfers === 1 ? "" : "s"}</span></span>
+      <span class="r">${BigInt(c.received) > 0n ? `<span class="in">+${rlo(c.received)}</span><br>` : ""}${BigInt(c.sent) > 0n ? `−${rlo(c.sent)}` : ""}</span></li>`).join("")
+      : `<li class="empty">No RLO transfers with other addresses.</li>`;
+  }
+
+  // Pretty, coloured JSON for the raw view.
+  function jsonHtml(v) {
+    return esc(JSON.stringify(v, null, 2)).replace(/(&quot;(?:[^&]|&(?!quot;))*?&quot;)(\s*:)?|\b(true|false|null)\b|(-?\d+(?:\.\d+)?)/g, (m, str, colon, lit, num) =>
+      str ? `<span class="${colon ? "k" : "s"}">${str}</span>${colon || ""}` : lit ? `<span class="b">${lit}</span>` : `<span class="n">${num}</span>`);
+  }
+
   // ---------- transaction ----------
-  async function tx(sig) {
-    view.innerHTML = `<div class="note">Loading transaction…</div>`;
-    let t;
-    try { t = await api(`/tx/${sig}`); } catch (e) { return showError(e); }
+  // Pieces of a transaction view, shared by the transaction page and the quick-view drawer.
+  function txParts(t) {
     const summary = { instructions: t.instructions.filter((i) => i.inner_index == null), transfers: t.transfers };
-    const accounts = t.accounts.map((x) => `<tr><td>${addr(x.address, x.address)}</td><td class="nowrap">${x.signer ? `<span class="tag signer">signer</span>` : ""}<span class="tag">${x.writable ? "writable" : "read-only"}</span></td></tr>`).join("");
+    const kv = `<dl class="kv">
+        <dt>Time</dt><dd>${when(t.time)} UTC <span class="muted">· ${ago(t.time_ms)}</span></dd>
+        <dt>Block</dt><dd>${blockLink(t.block)} <span class="muted">· position ${t.index}</span></dd>
+        <dt>Fee payer</dt><dd>${addr(t.fee_payer, t.fee_payer)}</dd>
+        <dt>Fee</dt><dd>${rlo(t.fee)} RLO <span class="muted">· ${fmt(t.fee)} kelvin</span></dd>
+        <dt>Compute units</dt><dd>${t.compute_units != null ? fmt(t.compute_units) : "–"}</dd>
+        ${t.error ? `<dt>Error</dt><dd><span class="status bad">${esc(reason(t.error))}</span> <span class="mono muted">${esc(JSON.stringify(t.error))}</span></dd>` : ""}
+      </dl>`;
+    const flows = t.transfers.length
+      ? t.transfers.map((x) => `<div class="flow"><span>${addr(x.from)}</span><span class="arrow">→</span><span>${addr(x.to)}</span><span class="amt">${amount(x)}</span></div>`).join("")
+      : `<div class="empty">No RLO or tokens moved.</div>`;
     const ixs = t.instructions.map((i) => `
       <div class="ix ${family(i)} ${i.inner_index != null ? "inner" : ""}" style="box-shadow: inset 3px 0 0 var(--pc)">
         <div class="top"><span class="mono muted">#${i.index}${i.inner_index != null ? "." + i.inner_index : ""}</span><b>${esc(i.kind ? human(i.kind) : "Not decoded")}</b><span class="tag ${family(i)}">${esc(i.program_name || "Program")}</span>${addr(i.program, short(i.program, 4, 4))}</div>
         ${i.accounts.length ? `<div class="note">Accounts: ${i.accounts.map((x) => addr(x, short(x, 4, 4))).join(", ")}</div>` : ""}
         ${i.data ? `<details><summary>Raw data · ${i.data.length} base58 characters</summary><div class="mono" style="overflow-wrap:anywhere;margin-top:0.3rem">${esc(i.data)}</div></details>` : ""}
       </div>`).join("");
-    const flows = t.transfers.length
-      ? t.transfers.map((x) => `<div class="flow"><span>${addr(x.from)}</span><span class="arrow">→</span><span>${addr(x.to)}</span><span class="amt">${amount(x)}</span></div>`).join("")
-      : `<div class="empty">No RLO or tokens moved.</div>`;
-    view.innerHTML = `
-      <section class="head"><div style="min-width:0"><span class="eyebrow">Transaction · ${statusTag(t.status)}</span><h1>${esc(headline(summary))}</h1><div class="id">${esc(sig)}${copyBtn(sig)}</div></div></section>
-      <section class="card"><dl class="kv">
-        <dt>Time</dt><dd>${when(t.time)} UTC <span class="muted">· ${ago(t.time_ms)}</span> <span class="note">(the RPC's getTransaction returns no time)</span></dd>
-        <dt>Block</dt><dd>${blockLink(t.block)} <span class="muted">· position ${t.index}</span></dd>
-        <dt>Fee payer</dt><dd>${addr(t.fee_payer, t.fee_payer)}</dd>
-        <dt>Fee</dt><dd>${rlo(t.fee)} RLO <span class="muted">· ${fmt(t.fee)} kelvin</span></dd>
-        <dt>Compute units</dt><dd>${t.compute_units != null ? fmt(t.compute_units) : "–"}</dd>
-        ${t.error ? `<dt>Error</dt><dd class="mono">${esc(JSON.stringify(t.error))}</dd>` : ""}
-      </dl></section>
-      <section class="card"><header><h2>Value moved</h2></header>${flows}</section>
-      <section class="card"><header><h2>Instructions</h2><span class="note">${t.instructions.length} including inner</span></header>${ixs}</section>
-      <section class="card"><header><h2>Accounts</h2></header><div class="tablewrap"><table>${accounts}</table></div></section>
-      ${t.logs ? `<section class="card"><details><summary style="padding:0.9rem 1.1rem">Program logs · ${t.logs.length} lines</summary><pre class="logs">${esc(t.logs.join("\n"))}</pre></details></section>` : ""}`;
+    return { title: headline(summary), kv, flows, ixs };
   }
+
+  async function tx(sig) {
+    view.innerHTML = `<div class="note">Loading transaction…</div>`;
+    let t;
+    try { t = await api(`/tx/${sig}`); } catch (e) { return showError(e); }
+    const p = txParts(t);
+    const accounts = t.accounts.map((x) => `<tr><td>${addr(x.address, x.address)}</td><td class="nowrap">${x.signer ? `<span class="tag signer">signer</span>` : ""}<span class="tag">${x.writable ? "writable" : "read-only"}</span></td></tr>`).join("");
+    view.innerHTML = `
+      <section class="head"><div style="min-width:0"><span class="eyebrow">Transaction · ${statusTag(t.status)}</span><h1>${esc(p.title)}</h1><div class="id">${esc(sig)}${copyBtn(sig)}</div></div></section>
+      <section class="card">${p.kv}<div class="totals"><span>The RPC's getTransaction returns <b>block_time: null</b> for this transaction; Kelvin takes the time from its block.</span></div></section>
+      <section class="card"><header><h2>Value moved</h2></header>${p.flows}</section>
+      <section class="card"><header><h2>Instructions</h2><span class="note">${t.instructions.length} including inner</span></header>${p.ixs}</section>
+      <section class="card"><header><h2>Accounts</h2></header><div class="tablewrap"><table>${accounts}</table></div></section>
+      ${t.logs ? `<section class="card"><details><summary style="padding:0.9rem 1.1rem">Program logs · ${t.logs.length} lines</summary><pre class="logs">${esc(t.logs.join("\n"))}</pre></details></section>` : ""}
+      <section class="card"><details><summary style="padding:0.9rem 1.1rem">Raw JSON · <span class="mono">GET /v1/${esc(NET)}/tx/${esc(short(sig, 6, 4))}</span></summary><pre class="json">${jsonHtml(t)}</pre></details></section>`;
+  }
+
+  // ---------- quick view ----------
+  // Clicking a transaction row opens it in a drawer; links inside the row keep their own targets.
+  const drawer = document.getElementById("drawer"), back = document.getElementById("drawer-back");
+  let drawerSig = null, returnFocus = null, hideTimer = null;
+  function openTx(sig) {
+    clearTimeout(hideTimer);
+    if (drawer.hidden) returnFocus = document.activeElement;
+    drawerSig = sig;
+    drawer.hidden = back.hidden = false;
+    requestAnimationFrame(() => { drawer.classList.add("open"); back.classList.add("open"); });
+    document.getElementById("drawer-full").href = `#/tx/${sig}`;
+    document.getElementById("drawer-title").textContent = "Transaction";
+    const body = document.getElementById("drawer-body");
+    body.innerHTML = `<div class="note">Loading ${esc(short(sig, 6, 4))}…</div>`;
+    document.getElementById("drawer-close").focus();
+    api(`/tx/${sig}`).then((t) => {
+      if (drawerSig !== sig) return;
+      const p = txParts(t);
+      document.getElementById("drawer-title").innerHTML = `${esc(p.title)} ${statusTag(t.status)}`;
+      body.innerHTML = `
+        <div class="id mono" style="font-size:0.8rem;overflow-wrap:anywhere">${esc(sig)}${copyBtn(sig)}</div>
+        <section class="card">${p.kv}</section>
+        <section class="card"><header><h2>Value moved</h2></header>${p.flows}</section>
+        <section class="card"><header><h2>Instructions</h2><span class="note">${t.instructions.length} including inner</span></header>${p.ixs}</section>`;
+    }, (e) => { if (drawerSig === sig) body.innerHTML = `<div class="error">${esc(e.message)}</div>`; });
+  }
+  function closeTx(restore = true) {
+    if (drawer.hidden) return;
+    drawerSig = null;
+    drawer.classList.remove("open"); back.classList.remove("open");
+    hideTimer = setTimeout(() => { drawer.hidden = back.hidden = true; }, 220);
+    if (restore) returnFocus?.focus?.();
+  }
+  back.addEventListener("click", () => closeTx());
+  document.getElementById("drawer-close").addEventListener("click", () => closeTx());
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !drawer.hidden) closeTx();
+    const row = e.target.closest?.("[data-sig]");
+    if (row && e.key === "Enter" && e.target === row) openTx(row.dataset.sig);
+  });
+  document.addEventListener("click", (e) => {
+    const row = e.target.closest("[data-sig]");
+    if (!row || drawer.contains(row) || e.target.closest("a, button, summary, input, select, label")) return;
+    if (getSelection()?.toString()) return;
+    openTx(row.dataset.sig);
+  });
+  const clickable = (sig) => `data-sig="${esc(sig)}" tabindex="0" title="Open transaction"`;
 
   // ---------- block ----------
   async function block(h) {
     view.innerHTML = `<div class="note">Loading block…</div>`;
     let b;
     try { b = await api(`/blocks/${h}`); } catch (e) { return showError(e); }
-    const rows = b.transactions.map((t) => `<tr><td><b>${esc(headline(t))}</b><div>${detailTags(t)}</div></td><td>${txLink(t.signature)}</td><td class="amt">${t.transfers.length ? amount(t.transfers[0]) + (t.transfers.length > 1 ? ` <span class="muted">+${t.transfers.length - 1}</span>` : "") : ""}</td><td>${statusTag(t.status)}</td></tr>`).join("");
+    const rows = b.transactions.map((t) => `<tr ${clickable(t.signature)}><td><b>${esc(headline(t))}</b><div>${detailTags(t)}</div></td><td>${txLink(t.signature)}</td><td class="amt">${t.transfers.length ? amount(t.transfers[0]) + (t.transfers.length > 1 ? ` <span class="muted">+${t.transfers.length - 1}</span>` : "") : ""}</td><td>${statusTag(t.status)}</td></tr>`).join("");
     view.innerHTML = `
       <section class="head"><div><span class="eyebrow">Block</span><h1 class="num">${fmt(b.height)}</h1></div></section>
       <section class="card"><dl class="kv">
@@ -695,6 +885,7 @@ footer.foot .brand svg { width: 20px; height: 20px; }
 
   // ---------- routing ----------
   function route() {
+    closeTx(false);
     leave();
     window.scrollTo(0, 0);
     const [, page, arg] = location.hash.split("/");

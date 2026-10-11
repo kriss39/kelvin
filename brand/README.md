@@ -6,7 +6,7 @@
 | `kelvin-logo-light.png`, `kelvin-logo-dark.png` | Mark with wordmark and tagline, for light and dark backgrounds. |
 | `og.png` | 1200×630 link preview, served by the API at `/og.png`. |
 
-Wordmark: **kelvin**, lowercase like the SI unit, Archivo at 125% width and weight 800.
+Wordmark: **Kelvin**, Archivo at 125% width and weight 800.
 Tagline: *Rialo history, down to the last kelvin.*
 
 | Colour | Hex (light / dark) | Meaning |
