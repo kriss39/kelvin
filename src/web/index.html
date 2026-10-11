@@ -435,13 +435,28 @@ footer.foot .brand svg { width: 20px; height: 20px; }
   let cleanups = [];
   const onLeave = (fn) => cleanups.push(fn);
   const leave = () => { cleanups.forEach((f) => { try { f(); } catch (e) {} }); cleanups = []; };
-  function stream(params, handlers, badges) {
+  // Live updates over server-sent events. A proxy that buffers the stream (Cloudflare quick
+  // tunnels hold it in 128 KiB chunks) is detected by the missing `hello` event, and the page
+  // falls back to `poll`, called every few seconds.
+  function stream(params, handlers, badges, poll) {
     const es = new EventSource(`${API}/v1/${NET}/stream${params}`);
-    const set = (on) => badges.forEach((b) => { b.classList.toggle("off", !on); b.textContent = on ? "Live" : "Reconnecting…"; });
-    es.onopen = () => set(true);
-    es.onerror = () => set(false);
+    const set = (text, on) => badges.forEach((b) => { b.classList.toggle("off", !on); b.textContent = text; });
+    let ok = false;
+    es.addEventListener("hello", () => { ok = true; set("Live", true); });
+    es.onerror = () => { if (ok) set("Reconnecting…", false); };
     for (const [name, fn] of Object.entries(handlers)) es.addEventListener(name, (e) => fn(JSON.parse(e.data)));
     onLeave(() => es.close());
+    const check = setTimeout(() => {
+      if (ok || !poll) return;
+      es.close();
+      set("Live", true);
+      badges.forEach((b) => (b.title = "Updated every few seconds"));
+      const tick = async () => { try { await poll(); } catch (e) {} };
+      tick();
+      const t = setInterval(tick, 4000);
+      onLeave(() => clearInterval(t));
+    }, 6000);
+    onLeave(() => clearTimeout(check));
   }
   function ticking() {
     const t = setInterval(() => document.querySelectorAll("[data-ms]").forEach((el) => (el.textContent = ago(+el.dataset.ms))), 1000);
@@ -551,7 +566,22 @@ footer.foot .brand svg { width: 20px; height: 20px; }
       const txs = blocks.flatMap((b) => b.transactions);
       if (txs.length) txsEl.innerHTML = txs.slice(0, 15).map((t) => txRow(t, false)).join("");
     } catch (e) { blocksEl.innerHTML = `<li class="empty">${esc(e.message)}</li>`; }
-    stream("", {
+    // Fallback when the stream is held back: new blocks since the last seen one, and the
+    // transactions of those with user activity.
+    let lastHeight = Math.max(0, ...bars.map((b) => b.h));
+    const seenTx = new Set([...txsEl.querySelectorAll("[data-sig]")].map((el) => el.dataset.sig));
+    const pollHome = async () => {
+      const page = await api("/blocks?limit=30");
+      const fresh = page.items.filter((b) => b.height > lastHeight).reverse();
+      if (!fresh.length) return;
+      lastHeight = fresh.at(-1).height;
+      fresh.forEach((b) => handlers.block(b));
+      const busy = fresh.filter((b) => b.transaction_count > b.system_transaction_count).slice(-4);
+      for (const b of await Promise.all(busy.map((x) => api(`/blocks/${x.height}`)))) {
+        b.transactions.filter((t) => !seenTx.has(t.signature)).forEach((t) => { seenTx.add(t.signature); handlers.tx(t); });
+      }
+    };
+    const handlers = {
       block: (b) => {
         bars.push({ h: b.height, n: b.transaction_count - b.system_transaction_count });
         if (bars.length > 300) bars.splice(0, bars.length - 100);
@@ -559,7 +589,8 @@ footer.foot .brand svg { width: 20px; height: 20px; }
         if (b.transaction_count > b.system_transaction_count) prepend(blocksEl, blockRow(b, true), 30);
       },
       tx: (t) => prepend(txsEl, txRow(t, true), 30),
-    }, [document.getElementById("live1"), document.getElementById("live2")]);
+    };
+    stream("", handlers, [document.getElementById("live1"), document.getElementById("live2")], pollHome);
     ticking();
   }
 
@@ -726,9 +757,20 @@ footer.foot .brand svg { width: 20px; height: 20px; }
     group("tab", "t", (v) => (tab = v));
     group("order", "o", (v) => (order = v));
     load(true);
-    stream(`?address=${encodeURIComponent(a)}`, {
-      tx: (t) => { if (tab === "txs" && order === "desc") { rows.querySelector(".empty")?.closest("tr")?.remove(); rows.insertAdjacentHTML("afterbegin", txRow(t, true)); } },
-    }, [document.getElementById("live")]);
+    const seen = new Set();
+    const onTx = (t) => {
+      if (seen.has(t.signature) || tab !== "txs" || order !== "desc") return;
+      seen.add(t.signature);
+      rows.querySelector(".empty")?.closest("tr")?.remove();
+      rows.insertAdjacentHTML("afterbegin", txRow(t, true));
+    };
+    const pollAddress = async () => {
+      if (tab !== "txs" || order !== "desc") return;
+      [...rows.querySelectorAll("[data-sig]")].forEach((el) => seen.add(el.dataset.sig));
+      const page = await api(`/address/${a}/txs?limit=10`);
+      page.items.filter((t) => !seen.has(t.signature)).reverse().forEach(onTx);
+    };
+    stream(`?address=${encodeURIComponent(a)}`, { tx: onTx }, [document.getElementById("live")], pollAddress);
     ticking();
   }
 

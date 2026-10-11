@@ -35,7 +35,12 @@ scripts/indexer.sh status
 scripts/indexer.sh stop       # finishes the current batch; progress is kept
 ```
 
-Logs go to `logs/indexer-testnet.log`. A restart, a crash or a sleeping laptop loses nothing:
+Logs go to `logs/indexer-testnet.log`.
+
+To share the local explorer, `scripts/tunnel.sh start` opens a Cloudflare quick tunnel and prints
+an `https://<random>.trycloudflare.com` address (`stop`, `url` as well). The address changes on
+every start and works while the Mac is on. Quick tunnels hold server-sent events back in 128 KiB
+chunks; the explorer notices the missing `hello` event within 6 s and polls every 4 s instead. A restart, a crash or a sleeping laptop loses nothing:
 both cursors are committed with the data.
 
 ## Deploying (Oracle Cloud Always Free)

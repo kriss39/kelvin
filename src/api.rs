@@ -1238,8 +1238,8 @@ struct LiveQuery {
     address: Option<String>,
 }
 
-/// Server-sent events: `block` for each new block and `tx` for each new user transaction, as the
-/// head follower indexes them.
+/// Server-sent events: `hello` on connect, then `block` for each new block and `tx` for each new
+/// user transaction as the head follower indexes them.
 async fn live(
     State(st): State<AppState>,
     Path(net): Path<String>,
@@ -1271,6 +1271,10 @@ async fn live(
             }
         }
     });
+    // Sent at once, so a client can tell a working stream from one a proxy is holding back
+    // (Cloudflare quick tunnels release it in 128 KiB chunks) and fall back to polling.
+    let hello = Ok(Event::default().event("hello").data("{}"));
+    let events = stream::iter([hello]).chain(events);
     let mut stop = st.stop.clone();
     let events = events.take_until(async move {
         let _ = stop.wait_for(|s| *s).await;

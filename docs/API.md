@@ -67,6 +67,8 @@ Unlike the RPC's `getTransaction`, every transaction comes with its block time.
 `GET /stream` is a server-sent event stream fed by the head follower, about a second behind the
 chain:
 
+- `event: hello`, sent at once on connect (if it does not arrive, a proxy is buffering the
+  stream; poll `/blocks` and `/address/{address}/txs` instead)
 - `event: block`, data: a block summary (height, time, transaction counts)
 - `event: tx`, data: a transaction summary
 - `event: lagged`, data: how many events a slow client missed
