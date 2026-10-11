@@ -148,10 +148,10 @@ pub async fn write(pool: &PgPool, net: i16, b: &Batch, cursor: Cursor) -> Result
 
     let t = &b.transfers;
     sqlx::query(
-        "INSERT INTO transfers (network, height, idx, ix_idx, inner_idx, source, dest, amount)
-         SELECT $1, h, i, x, n, s, d, a::numeric
-         FROM UNNEST($2::int8[], $3::int4[], $4::int2[], $5::int2[], $6::int8[], $7::int8[], $8::text[])
-              AS u(h, i, x, n, s, d, a)
+        "INSERT INTO transfers (network, height, idx, ix_idx, inner_idx, source, dest, mint, amount)
+         SELECT $1, h, i, x, n, s, d, m, a::numeric
+         FROM UNNEST($2::int8[], $3::int4[], $4::int2[], $5::int2[], $6::int8[], $7::int8[], $8::int8[], $9::text[])
+              AS u(h, i, x, n, s, d, m, a)
          ON CONFLICT DO NOTHING",
     )
     .bind(net)
@@ -161,6 +161,7 @@ pub async fn write(pool: &PgPool, net: i16, b: &Batch, cursor: Cursor) -> Result
     .bind(&t.inner_idx)
     .bind(id(&t.source))
     .bind(id(&t.dest))
+    .bind(t.mint.iter().map(|m| m.map(|a| ids[a as usize])).collect::<Vec<Option<i64>>>())
     .bind(&t.amount)
     .execute(&mut *tx)
     .await

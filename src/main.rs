@@ -7,6 +7,7 @@ mod indexer;
 mod ingest;
 mod model;
 mod normalize;
+mod redecode;
 mod rpc;
 
 use std::io::IsTerminal;
@@ -81,6 +82,11 @@ enum Cmd {
     },
     /// Row counts and on-disk size per table.
     Sizes,
+    /// Decode stored instructions that have no kind yet, after a decoder was added.
+    Redecode {
+        #[arg(long, default_value = "testnet")]
+        network: String,
+    },
 }
 
 #[tokio::main]
@@ -134,6 +140,12 @@ async fn main() -> Result<()> {
         }
         Cmd::Status { network } => status(&pool, &network).await,
         Cmd::Sizes => print_sizes(&pool).await,
+        Cmd::Redecode { network } => {
+            let (net, _) = db::network(&pool, &network).await?;
+            let o = redecode::run(&pool, net).await?;
+            println!("scanned {} undecoded instructions · decoded {} · new transfers {}", num(o.scanned), num(o.decoded), num(o.transfers));
+            Ok(())
+        }
     }
 }
 

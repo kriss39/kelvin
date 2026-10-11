@@ -89,6 +89,8 @@ pub struct Transfers {
     pub inner_idx: Vec<i16>,
     pub source: Vec<Addr>,
     pub dest: Vec<Addr>,
+    /// `None` for native RLO.
+    pub mint: Vec<Option<Addr>>,
     /// Decimal strings, cast to NUMERIC in SQL.
     pub amount: Vec<String>,
 }
@@ -232,6 +234,7 @@ impl Batch {
         t.inner_idx.truncate(transfers);
         t.source.truncate(transfers);
         t.dest.truncate(transfers);
+        t.mint.truncate(transfers);
         t.amount.truncate(transfers);
         let l = &mut self.logs;
         l.height.truncate(logs);
@@ -353,13 +356,15 @@ impl Batch {
                     .with_context(|| format!("tx {idx} ix {ix_idx}: transfer account #{pos} out of range"))
             };
             let (source, dest) = (key(t.source)?, key(t.dest)?);
+            let mint = t.mint.map(key).transpose()?;
             self.transfers.height.push(height);
             self.transfers.idx.push(idx);
             self.transfers.ix_idx.push(ix_idx);
             self.transfers.inner_idx.push(inner_idx);
             self.transfers.source.push(source);
             self.transfers.dest.push(dest);
-            self.transfers.amount.push(t.kelvin.to_string());
+            self.transfers.mint.push(mint);
+            self.transfers.amount.push(t.amount.to_string());
             self.stats.transfers += 1;
         }
 
