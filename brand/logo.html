@@ -1,0 +1,14 @@
+<!doctype html>
+<!-- Source for kelvin-logo-{light,dark}.png: render at 760x200 with a transparent background. ?theme=dark for the dark variant. -->
+<html><head><meta charset="utf-8">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..800&display=swap">
+<style>
+  html, body { margin: 0; background: transparent; }
+  .logo { display: flex; align-items: center; gap: 26px; padding: 24px 28px; font-family: Archivo, sans-serif; color: #0e1d29; }
+  body.dark .logo { color: #e3ecf2; }
+  .logo img { width: 132px; height: 132px; }
+  .logo b { display: block; font-size: 104px; line-height: 0.95; font-weight: 800; font-stretch: 125%; letter-spacing: -0.015em; }
+  .logo span { display: block; margin-top: 8px; font-size: 25px; font-weight: 500; opacity: 0.7; }
+</style></head>
+<body><div class="logo"><img src="kelvin-mark.svg" alt=""><div><b>kelvin</b><span>Rialo history, down to the last kelvin</span></div></div>
+<script>if (location.search.includes("dark")) document.body.classList.add("dark");</script></body></html>

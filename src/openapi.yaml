@@ -18,6 +18,13 @@ info:
 servers:
   - url: /
 paths:
+  /healthz:
+    get:
+      summary: Liveness and lag
+      description: 200 with each network's follower lag when the database answers, 503 otherwise.
+      responses:
+        "200": { description: Healthy }
+        "503": { description: Database unreachable }
   /v1/{network}/status:
     get:
       summary: Indexing status
@@ -270,6 +277,14 @@ components:
             progress: { type: number, minimum: 0, maximum: 1 }
         oldest_block_served_by_rpc: { type: [integer, "null"] }
         missing_blocks: { type: integer }
+        totals:
+          type: object
+          description: Planner estimates over all networks, refreshed by autovacuum; null until a table is analyzed
+          properties:
+            blocks: { type: [integer, "null"] }
+            transactions: { type: [integer, "null"] }
+            addresses: { type: [integer, "null"] }
+            transfers: { type: [integer, "null"] }
     BlockBrief:
       type: object
       properties:

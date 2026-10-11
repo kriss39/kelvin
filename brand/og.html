@@ -1,0 +1,32 @@
+<!doctype html>
+<!-- Source for og.png, the 1200x630 link preview. Numbers are the measured RPC limits (Oct 2026). -->
+<html><head><meta charset="utf-8">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..800&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+  html, body { margin: 0; }
+  .card { width: 1200px; height: 630px; box-sizing: border-box; padding: 64px 72px; background: #0a1116; color: #e3ecf2; font-family: Archivo, sans-serif;
+          display: grid; grid-template-rows: auto 1fr auto; position: relative; overflow: hidden; }
+  .ticks { position: absolute; right: 72px; top: 64px; bottom: 64px; width: 210px; display: grid; align-content: space-between; }
+  .ticks i { display: block; height: 5px; border-radius: 3px; justify-self: end; opacity: 0.9; }
+  .ticks i:nth-child(odd) { width: 130px; } .ticks i:nth-child(even) { width: 76px; }
+  .ticks i:nth-child(1) { background: #fcc419; } .ticks i:nth-child(2) { background: #ffa94d; } .ticks i:nth-child(3) { background: #ff922b; }
+  .ticks i:nth-child(4) { background: #f06595; } .ticks i:nth-child(5) { background: #e64980; } .ticks i:nth-child(6) { background: #cc5de8; }
+  .ticks i:nth-child(7) { background: #9775fa; } .ticks i:nth-child(8) { background: #845ef7; } .ticks i:nth-child(9) { background: #5c7cfa; }
+  .ticks i:nth-child(10) { background: #22b8cf; } .ticks i:nth-child(11) { background: #3bc9db; width: 150px; height: 7px; }
+  .card::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 8px;
+                 background: linear-gradient(90deg, #15aabf, #4c6ef5 22%, #7048e8 42%, #e64980 66%, #f76707 86%, #f59f00); }
+  .brand { display: flex; align-items: center; gap: 20px; }
+  .brand img { width: 84px; height: 84px; }
+  .brand b { font-size: 64px; font-weight: 800; font-stretch: 125%; letter-spacing: -0.015em; }
+  h1 { margin: 0; align-self: center; font-size: 62px; line-height: 1.08; font-weight: 750; font-stretch: 105%; max-width: 820px; }
+  h1 em { font-style: normal; color: #ff922b; }
+  h1 strong { background: linear-gradient(90deg, #3bc9db, #845ef7 55%, #f06595); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .foot { display: flex; gap: 40px; font-family: "JetBrains Mono", monospace; font-size: 22px; color: #8b9eac; }
+  .foot b { color: #e3ecf2; font-weight: 500; }
+</style></head>
+<body><div class="card">
+  <div class="ticks"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+  <div class="brand"><img src="kelvin-mark.svg" alt=""><b>kelvin</b></div>
+  <h1>Rialo's RPC keeps <em>20 transactions</em> per address. Kelvin keeps <strong>every one</strong>.</h1>
+  <div class="foot"><span><b>Full history</b> since block 16,635,303</span><span><b>Live</b> ~1 s behind the chain</span></div>
+</div></body></html>

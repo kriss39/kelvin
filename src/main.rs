@@ -103,11 +103,15 @@ enum Cmd {
 #[tokio::main]
 async fn main() -> Result<()> {
     let _ = dotenvy::dotenv();
-    tracing_subscriber::fmt()
+    let logs = tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")))
-        .with_writer(std::io::stderr)
-        .with_ansi(std::io::stderr().is_terminal())
-        .init();
+        .with_writer(std::io::stderr);
+    // LOG_FORMAT=json gives one JSON object per line, for log collectors.
+    if std::env::var("LOG_FORMAT").is_ok_and(|f| f == "json") {
+        logs.json().init();
+    } else {
+        logs.with_ansi(std::io::stderr().is_terminal()).init();
+    }
     let cli = Cli::parse();
     let pool = db::connect(&cli.database_url).await?;
     db::migrate(&pool).await?;

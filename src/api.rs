@@ -24,6 +24,7 @@ use sqlx::postgres::PgListener;
 use tokio::sync::{broadcast, watch};
 use tower_http::compression::CompressionLayer;
 use tower_http::cors::{Any, CorsLayer};
+use tower_http::timeout::TimeoutLayer;
 
 use crate::conformance;
 use crate::db;
@@ -44,6 +45,10 @@ const FRESH: u32 = 5;
 const OPENAPI: &str = include_str!("openapi.yaml");
 const DOCS: &str = include_str!("docs.html");
 const EXPLORER: &str = include_str!("web/index.html");
+const MARK: &str = include_str!("../brand/kelvin-mark.svg");
+const OG_IMAGE: &[u8] = include_bytes!("../brand/og.png");
+/// Requests that take longer get 503; streams are unaffected once their headers are sent.
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(20);
 
 struct Network {
     id: i16,
@@ -87,7 +92,20 @@ pub async fn serve(pool: PgPool, addr: SocketAddr, mut stop: watch::Receiver<boo
     let state = AppState { pool, networks, stop: stop.clone() };
 
     let app = Router::new()
-        .route("/", get(|| async { Html(EXPLORER) }))
+        .route("/", get(explorer))
+        .route("/healthz", get(healthz))
+        .route(
+            "/favicon.svg",
+            get(|| async {
+                ([(header::CONTENT_TYPE, "image/svg+xml"), (header::CACHE_CONTROL, "public, max-age=86400")], MARK)
+            }),
+        )
+        .route(
+            "/og.png",
+            get(|| async {
+                ([(header::CONTENT_TYPE, "image/png"), (header::CACHE_CONTROL, "public, max-age=86400")], OG_IMAGE)
+            }),
+        )
         .route("/docs", get(|| async { Html(DOCS) }))
         .route("/openapi.yaml", get(|| async { ([(header::CONTENT_TYPE, "application/yaml")], OPENAPI) }))
         .route("/v1/{net}/status", get(status))
@@ -100,6 +118,7 @@ pub async fn serve(pool: PgPool, addr: SocketAddr, mut stop: watch::Receiver<boo
         .route("/v1/{net}/programs/{program}/txs", get(program_txs))
         .route("/v1/{net}/stream", get(live))
         .route("/v1/{net}/rpc-conformance", get(rpc_conformance))
+        .layer(TimeoutLayer::with_status_code(StatusCode::SERVICE_UNAVAILABLE, REQUEST_TIMEOUT))
         .layer(CorsLayer::new().allow_origin(Any).allow_methods([Method::GET]))
         .layer(CompressionLayer::new())
         .with_state(state);
@@ -459,8 +478,62 @@ async fn status(State(st): State<AppState>, Path(net): Path<String>) -> ApiResul
             },
             "oldest_block_served_by_rpc": s.retention.last().map(|r| r.1),
             "missing_blocks": s.missing_heights,
+            "totals": totals(&st.pool).await?,
         }),
     ))
+}
+
+/// Row estimates from the planner's statistics: instant at any size, refreshed by autovacuum.
+/// Counted over all networks; `null` until a table has been analyzed.
+async fn totals(pool: &PgPool) -> Result<Value, ApiError> {
+    let rows: Vec<(String, i64)> = sqlx::query_as(
+        "SELECT relname::text, reltuples::int8 FROM pg_class
+         WHERE relkind = 'r' AND relname IN ('blocks', 'txs', 'addresses', 'transfers')",
+    )
+    .fetch_all(pool)
+    .await?;
+    let get = |t: &str| rows.iter().find(|r| r.0 == t).map(|r| r.1).filter(|&n| n >= 0);
+    Ok(json!({
+        "blocks": get("blocks"),
+        "transactions": get("txs"),
+        "addresses": get("addresses"),
+        "transfers": get("transfers"),
+    }))
+}
+
+/// 200 with the follower's lag when the database answers, 503 otherwise.
+async fn healthz(State(st): State<AppState>) -> Response {
+    let lag: Result<Vec<(String, Option<i64>)>, _> =
+        sqlx::query_as("SELECT n.name, s.tip_next FROM networks n LEFT JOIN ingest_state s ON s.network = n.id")
+            .fetch_all(&st.pool)
+            .await;
+    match lag {
+        Ok(rows) => {
+            let nets: serde_json::Map<String, Value> = rows
+                .into_iter()
+                .filter_map(|(name, tip)| {
+                    let n = st.networks.get(&name)?;
+                    let head = n.head.load(Ordering::Relaxed) as i64;
+                    Some((name, json!({ "lag_blocks": tip.map(|t| (head - (t - 1)).max(0)) })))
+                })
+                .collect();
+            let mut r = Json(json!({ "ok": true, "networks": nets })).into_response();
+            r.headers_mut().insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+            r
+        }
+        Err(e) => {
+            tracing::warn!("healthz: {e:#}");
+            (StatusCode::SERVICE_UNAVAILABLE, Json(json!({ "ok": false }))).into_response()
+        }
+    }
+}
+
+/// The explorer page, with its link-preview URLs made absolute for the host it is served on.
+async fn explorer(headers: axum::http::HeaderMap) -> Html<String> {
+    let host = headers.get(header::HOST).and_then(|h| h.to_str().ok()).unwrap_or("localhost");
+    let local = host.starts_with("localhost") || host.starts_with("127.") || host.starts_with("[::1]");
+    let origin = format!("{}://{host}", if local { "http" } else { "https" });
+    Html(EXPLORER.replace("__ORIGIN__", &origin))
 }
 
 #[derive(Serialize)]
