@@ -13,7 +13,7 @@ use anyhow::Result;
 use axum::extract::{Path, Query, State};
 use axum::http::{HeaderValue, Method, StatusCode, header};
 use axum::response::sse::{Event, KeepAlive, Sse};
-use axum::response::{Html, IntoResponse, Redirect, Response};
+use axum::response::{Html, IntoResponse, Response};
 use axum::routing::get;
 use axum::{Json, Router};
 use futures::{Stream, StreamExt, stream};
@@ -42,6 +42,7 @@ const FRESH: u32 = 5;
 
 const OPENAPI: &str = include_str!("openapi.yaml");
 const DOCS: &str = include_str!("docs.html");
+const EXPLORER: &str = include_str!("web/index.html");
 
 struct Network {
     id: i16,
@@ -85,7 +86,7 @@ pub async fn serve(pool: PgPool, addr: SocketAddr, mut stop: watch::Receiver<boo
     let state = AppState { pool, networks, stop: stop.clone() };
 
     let app = Router::new()
-        .route("/", get(|| async { Redirect::temporary("/docs") }))
+        .route("/", get(|| async { Html(EXPLORER) }))
         .route("/docs", get(|| async { Html(DOCS) }))
         .route("/openapi.yaml", get(|| async { ([(header::CONTENT_TYPE, "application/yaml")], OPENAPI) }))
         .route("/v1/{net}/status", get(status))

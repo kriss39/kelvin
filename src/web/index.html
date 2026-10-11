@@ -1,0 +1,455 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Kelvin Explorer</title>
+<meta name="description" content="Full, pageable transaction history for Rialo.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230a6c8c'/%3E%3Cpath d='M10 7v18M10 16l9-9M13 13l8 12' stroke='white' stroke-width='3.2' fill='none' stroke-linecap='round'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..800&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: sticky instrument bar (brand, network, search) over one column of readouts and lists. */
+:root {
+  --bg: #eef2f5; --surface: #ffffff; --ink: #0e1d29; --muted: #586a78; --line: #d3dce3;
+  --accent: #0a6c8c; --accent-soft: #d8edf4; --rpc: #a8501a; --rpc-soft: #f6e6da;
+  --ok: #1d7448; --bad: #b3261e; --hatch: #c6d1d9; --flash: #fff4c2;
+  --display: "Archivo", "Helvetica Neue", Arial, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0a1116; --surface: #101a21; --ink: #e3ecf2; --muted: #8b9eac; --line: #21313c;
+    --accent: #52c2e0; --accent-soft: #10303b; --rpc: #e59a5e; --rpc-soft: #33231a;
+    --ok: #50c48c; --bad: #f2756d; --hatch: #2a3a45; --flash: #2e2a12; color-scheme: dark;
+  }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: var(--bg); color: var(--ink); font: 15px/1.55 var(--display); -webkit-font-smoothing: antialiased; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+.mono { font-family: var(--mono); font-size: 0.86em; }
+.muted { color: var(--muted); }
+.num { font-variant-numeric: tabular-nums; }
+h1, h2, h3 { font-family: var(--display); margin: 0; line-height: 1.15; text-wrap: balance; }
+h2 { font-size: 1.35rem; font-weight: 750; font-stretch: 112%; }
+h3 { font-size: 0.78rem; font-weight: 650; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* Bar */
+.bar { position: sticky; top: 0; z-index: 5; background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(8px); border-bottom: 1px solid var(--line); padding-top: env(safe-area-inset-top, 0px); }
+.bar-in { max-width: 72rem; margin: 0 auto; padding: 0.7rem 1rem; display: flex; gap: 0.75rem 1rem; align-items: center; flex-wrap: wrap; }
+.brand { display: flex; align-items: baseline; gap: 0.5rem; color: var(--ink); }
+.brand:hover { text-decoration: none; }
+.brand b { font-size: 1.5rem; font-weight: 800; font-stretch: 125%; letter-spacing: -0.01em; }
+.brand span { font-family: var(--mono); font-size: 0.7rem; color: var(--muted); }
+.search { flex: 1 1 22rem; display: flex; min-width: 0; }
+.search input { flex: 1; min-width: 0; font: inherit; font-family: var(--mono); font-size: 0.85rem; padding: 0.55rem 0.75rem; border: 1px solid var(--line); border-radius: 8px 0 0 8px; background: var(--surface); color: var(--ink); }
+.search button { font: inherit; font-weight: 600; padding: 0 1rem; border: 1px solid var(--accent); background: var(--accent); color: var(--surface); border-radius: 0 8px 8px 0; cursor: pointer; }
+select { font: inherit; font-size: 0.85rem; padding: 0.45rem 0.5rem; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--ink); }
+
+main { max-width: 72rem; margin: 0 auto; padding: 1.5rem 1rem 4rem; display: grid; gap: 1.75rem; }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; min-width: 0; }
+.panel > header { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; flex-wrap: wrap; padding: 0.85rem 1rem; border-bottom: 1px solid var(--line); }
+.pad { padding: 1rem; }
+.error { padding: 1rem; border: 1px solid var(--bad); color: var(--bad); border-radius: 10px; background: var(--surface); }
+
+/* Readouts */
+.readouts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 10.5rem), 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.readouts > div { background: var(--surface); padding: 0.8rem 1rem; display: grid; gap: 0.1rem; }
+.readouts .k { font-size: 0.72rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+.readouts .v { font-size: 1.35rem; font-weight: 750; font-stretch: 108%; font-variant-numeric: tabular-nums; }
+.readouts .s { font-size: 0.78rem; color: var(--muted); }
+.v.rpc { color: var(--rpc); }
+.v.kel { color: var(--accent); }
+
+/* Ruler */
+.ruler { display: grid; gap: 0.4rem; padding: 0.9rem 1rem; }
+.track { position: relative; height: 1.4rem; border-radius: 5px; background: var(--bg); border: 1px solid var(--line); overflow: hidden; }
+.track i { position: absolute; top: 0; bottom: 0; }
+.track .pruned { left: 0; background: repeating-linear-gradient(135deg, var(--hatch) 0 5px, transparent 5px 10px); }
+.track .fill { background: var(--accent); min-width: 2px; }
+.ticks { position: relative; height: 1rem; font-family: var(--mono); font-size: 0.68rem; color: var(--muted); }
+.ticks span { position: absolute; white-space: nowrap; }
+
+/* Live columns */
+.cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 26rem), 1fr)); gap: 1rem; }
+.live { display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.78rem; font-weight: 600; color: var(--accent); }
+.live::before { content: ""; width: 0.5rem; height: 0.5rem; border-radius: 50%; background: currentColor; }
+.live.off { color: var(--muted); }
+@media (prefers-reduced-motion: no-preference) {
+  .live:not(.off)::before { animation: pulse 1.6s ease-in-out infinite; }
+  .new { animation: flash 1.6s ease-out; }
+}
+@keyframes pulse { 50% { opacity: 0.25; } }
+@keyframes flash { from { background: var(--flash); } to { background: transparent; } }
+.feed { list-style: none; margin: 0; padding: 0; max-height: 34rem; overflow-y: auto; }
+.feed li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0.15rem 0.75rem; padding: 0.55rem 1rem; border-bottom: 1px solid var(--line); font-size: 0.85rem; }
+.feed li:last-child { border-bottom: 0; }
+.feed .r { text-align: right; }
+.empty { padding: 1.25rem 1rem; color: var(--muted); font-size: 0.88rem; }
+
+/* Tables */
+.tablewrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 0.85rem; }
+th { text-align: left; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); font-weight: 600; padding: 0.55rem 0.75rem; border-bottom: 1px solid var(--line); white-space: nowrap; }
+td { padding: 0.55rem 0.75rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+tr:last-child td { border-bottom: 0; }
+td.amt, th.amt { text-align: right; white-space: nowrap; font-family: var(--mono); font-size: 0.8rem; }
+.in { color: var(--ok); }
+.tag { display: inline-block; font-size: 0.72rem; padding: 0.05rem 0.4rem; border-radius: 4px; background: var(--bg); border: 1px solid var(--line); margin: 0 0.25rem 0.2rem 0; white-space: nowrap; }
+.tag.sig { border-color: var(--accent); color: var(--accent); }
+.ok { color: var(--ok); font-weight: 600; }
+.bad { color: var(--bad); font-weight: 600; }
+.more { display: flex; justify-content: center; padding: 0.75rem; border-top: 1px solid var(--line); }
+button.btn { font: inherit; font-size: 0.85rem; padding: 0.4rem 0.9rem; border: 1px solid var(--line); background: var(--surface); color: var(--ink); border-radius: 7px; cursor: pointer; }
+button.btn:disabled { opacity: 0.45; cursor: default; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 7px; overflow: hidden; }
+.seg button { font: inherit; font-size: 0.8rem; border: 0; background: transparent; color: var(--ink); padding: 0.3rem 0.7rem; cursor: pointer; }
+.seg button + button { border-left: 1px solid var(--line); }
+.seg button[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+
+/* Detail */
+.title { display: grid; gap: 0.35rem; }
+.title .id { font-family: var(--mono); font-size: 0.9rem; overflow-wrap: anywhere; }
+.copy { font: inherit; font-size: 0.72rem; border: 1px solid var(--line); background: var(--surface); color: var(--muted); border-radius: 4px; padding: 0.05rem 0.45rem; cursor: pointer; margin-left: 0.4rem; vertical-align: 0.1em; }
+dl.kv { display: grid; grid-template-columns: minmax(7rem, max-content) minmax(0, 1fr); gap: 0.45rem 1.25rem; margin: 0; padding: 1rem; font-size: 0.88rem; }
+dl.kv dt { color: var(--muted); }
+dl.kv dd { margin: 0; overflow-wrap: anywhere; }
+.ix { padding: 0.65rem 1rem; border-bottom: 1px solid var(--line); display: grid; gap: 0.3rem; font-size: 0.85rem; }
+.ix:last-child { border-bottom: 0; }
+.ix.inner { padding-left: 2.25rem; background: color-mix(in srgb, var(--bg) 50%, transparent); }
+.ix .head { display: flex; flex-wrap: wrap; gap: 0.25rem 0.6rem; align-items: baseline; }
+details summary { cursor: pointer; color: var(--muted); font-size: 0.8rem; }
+pre.logs { margin: 0; padding: 1rem; font-family: var(--mono); font-size: 0.78rem; line-height: 1.6; overflow-x: auto; white-space: pre; }
+.note { font-size: 0.82rem; color: var(--muted); }
+footer.foot { max-width: 72rem; margin: 0 auto; padding: 0 1rem 2.5rem; font-size: 0.8rem; color: var(--muted); display: flex; gap: 0.5rem 1.25rem; flex-wrap: wrap; }
+@media (max-width: 40rem) { dl.kv { grid-template-columns: 1fr; gap: 0.1rem; } dl.kv dd { margin-bottom: 0.5rem; } }
+</style>
+</head>
+<body>
+<div class="bar">
+  <div class="bar-in">
+    <a class="brand" href="#/"><b>Kelvin</b><span>Rialo history</span></a>
+    <select id="net" aria-label="Network"><option value="testnet">testnet</option><option value="devnet">devnet</option></select>
+    <form class="search" id="search" role="search">
+      <input id="q" type="search" placeholder="Address, transaction signature or block height" aria-label="Search" autocomplete="off" spellcheck="false">
+      <button type="submit">Search</button>
+    </form>
+  </div>
+</div>
+<main id="view" aria-live="polite"></main>
+<footer class="foot">
+  <span>Kelvin indexes every Rialo block. Amounts in RLO (1 RLO = 10⁹ kelvin).</span>
+  <a href="/docs">API docs</a>
+</footer>
+
+<script>
+(() => {
+  "use strict";
+  const API = (new URLSearchParams(location.search).get("api") || "").replace(/\/$/, "");
+  const view = document.getElementById("view");
+  const netSel = document.getElementById("net");
+  let NET = "testnet";
+  try { NET = localStorage.getItem("kelvin.net") || "testnet"; } catch (e) {}
+  netSel.value = NET;
+  netSel.addEventListener("change", () => {
+    NET = netSel.value;
+    try { localStorage.setItem("kelvin.net", NET); } catch (e) {}
+    route();
+  });
+
+  // ---------- helpers ----------
+  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const fmt = (n) => Number(n).toLocaleString("en-US");
+  const short = (s, a = 6, b = 6) => (s && s.length > a + b + 1 ? s.slice(0, a) + "…" + s.slice(-b) : s || "");
+  const rlo = (kelvin) => {
+    const k = BigInt(kelvin), neg = k < 0n, a = neg ? -k : k;
+    const w = a / 1000000000n, f = (a % 1000000000n).toString().padStart(9, "0").replace(/0+$/, "");
+    return (neg ? "−" : "") + w.toLocaleString("en-US") + (f ? "." + f : "");
+  };
+  const ago = (ms) => {
+    const s = Math.max(0, Math.round((Date.now() - ms) / 1000));
+    if (s < 60) return s + "s ago";
+    if (s < 3600) return Math.floor(s / 60) + "m ago";
+    if (s < 86400) return Math.floor(s / 3600) + "h ago";
+    return Math.floor(s / 86400) + "d ago";
+  };
+  const when = (iso) => iso.replace("T", " ").replace("Z", " UTC");
+  const addr = (a, name) => `<a class="mono" href="#/address/${esc(a)}" title="${esc(a)}">${esc(name || short(a))}</a>`;
+  const txLink = (s, n = 8) => `<a class="mono" href="#/tx/${esc(s)}" title="${esc(s)}">${esc(short(s, n, 6))}</a>`;
+  const blockLink = (h) => `<a class="num" href="#/block/${h}">${fmt(h)}</a>`;
+  const status = (s) => (s === "failed" ? `<span class="bad">Failed</span>` : `<span class="ok">OK</span>`);
+  const kinds = (ixs) => {
+    const seen = new Set();
+    return ixs.map((i) => {
+      const l = (i.kind ? i.kind.replace(/_/g, " ") : "call") + " · " + (i.program_name || short(i.program, 4, 4));
+      if (seen.has(l)) return "";
+      seen.add(l);
+      return `<span class="tag">${esc(l)}</span>`;
+    }).join("");
+  };
+  const amount = (t) => (t.mint ? fmt(t.amount) + " " + `<span class="muted" title="${esc(t.mint)}">${esc(short(t.mint, 4, 4))}</span>` : rlo(t.amount) + " RLO");
+  const copyBtn = (text) => `<button class="copy" type="button" data-copy="${esc(text)}">Copy</button>`;
+  document.addEventListener("click", (e) => {
+    const b = e.target.closest(".copy");
+    if (!b) return;
+    const done = () => { b.textContent = "Copied"; setTimeout(() => (b.textContent = "Copy"), 1200); };
+    navigator.clipboard?.writeText(b.dataset.copy).then(done, () => {});
+  });
+
+  async function api(path) {
+    const r = await fetch(`${API}/v1/${NET}${path}`);
+    let body = null;
+    try { body = await r.json(); } catch (e) {}
+    if (!r.ok) throw new Error((body && body.error) || `${r.status} ${r.statusText}`);
+    return body;
+  }
+
+  // Everything a page opens (timers, streams) is closed when the route changes.
+  let cleanups = [];
+  const onLeave = (fn) => cleanups.push(fn);
+  function leave() { cleanups.forEach((f) => { try { f(); } catch (e) {} }); cleanups = []; }
+
+  function stream(params, handlers, badge) {
+    const es = new EventSource(`${API}/v1/${NET}/stream${params}`);
+    const set = (on) => { if (badge) { badge.classList.toggle("off", !on); badge.textContent = on ? "Live" : "Reconnecting…"; } };
+    es.onopen = () => set(true);
+    es.onerror = () => set(false);
+    for (const [name, fn] of Object.entries(handlers)) es.addEventListener(name, (e) => fn(JSON.parse(e.data)));
+    onLeave(() => es.close());
+  }
+
+  const showError = (e) => { view.innerHTML = `<div class="error">${esc(e.message || e)}</div>`; };
+
+  // ---------- search ----------
+  document.getElementById("search").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const q = document.getElementById("q").value.trim();
+    if (!q) return;
+    if (/^\d+$/.test(q)) location.hash = `#/block/${q}`;
+    else if (/^[1-9A-HJ-NP-Za-km-z]{80,90}$/.test(q)) location.hash = `#/tx/${q}`;
+    else if (/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(q)) location.hash = `#/address/${q}`;
+    else showError("That is not an address, a transaction signature or a block height.");
+  });
+
+  // ---------- home ----------
+  async function home() {
+    view.innerHTML = `
+      <section class="readouts" id="readouts"><div><span class="k">Loading</span><span class="v">…</span></div></section>
+      <section class="panel"><header><h3>Block heights</h3><span class="note" id="rulernote"></span></header>
+        <div class="ruler"><div class="track" id="track"></div><div class="ticks" id="ticks"></div>
+        <div class="note">Hatched: pruned by the RPC before Kelvin started. Filled: indexed by Kelvin.</div></div></section>
+      <section class="cols">
+        <div class="panel"><header><h2>Latest blocks</h2><span class="live off" id="live1">Connecting…</span></header><ul class="feed" id="blocks"></ul></div>
+        <div class="panel"><header><h2>Latest transactions</h2><span class="live off" id="live2">Connecting…</span></header><ul class="feed" id="txs"><li class="empty">Waiting for the next transaction…</li></ul></div>
+      </section>`;
+    const refresh = async () => {
+      try { renderStatus(await api("/status")); } catch (e) { document.getElementById("readouts").innerHTML = `<div><span class="k">Status</span><span class="s">${esc(e.message)}</span></div>`; }
+    };
+    refresh();
+    const t = setInterval(refresh, 5000);
+    onLeave(() => clearInterval(t));
+
+    const blocksEl = document.getElementById("blocks"), txsEl = document.getElementById("txs");
+    const blockRow = (b, fresh) => `<li class="${fresh ? "new" : ""}"><span>${blockLink(b.height)} <span class="muted">· ${b.transaction_count - b.system_transaction_count} user tx</span></span><span class="r muted" data-ms="${b.time_ms}">${ago(b.time_ms)}</span></li>`;
+    const txRow = (t, fresh) => {
+      const moved = t.transfers.length ? amount(t.transfers[0]) : "";
+      return `<li class="${fresh ? "new" : ""}"><span>${txLink(t.signature)} ${status(t.status)}</span><span class="r mono">${moved}</span><span>${kinds(t.instructions)}</span><span class="r muted" data-ms="${t.time_ms}">${ago(t.time_ms)}</span></li>`;
+    };
+    const prepend = (el, html, max) => {
+      el.querySelector(".empty")?.remove();
+      el.insertAdjacentHTML("afterbegin", html);
+      while (el.children.length > max) el.lastElementChild.remove();
+    };
+    try {
+      const recent = await api("/blocks?limit=40");
+      blocksEl.innerHTML = recent.items.slice(0, 20).map((b) => blockRow(b, false)).join("");
+      const busy = recent.items.filter((b) => b.transaction_count > b.system_transaction_count).slice(0, 5);
+      const blocks = await Promise.all(busy.map((b) => api(`/blocks/${b.height}`)));
+      const txs = blocks.flatMap((b) => b.transactions);
+      if (txs.length) txsEl.innerHTML = txs.slice(0, 20).map((t) => txRow(t, false)).join("");
+    } catch (e) { blocksEl.innerHTML = `<li class="empty">${esc(e.message)}</li>`; }
+    stream("", {
+      block: (b) => prepend(blocksEl, blockRow(b, true), 30),
+      tx: (t) => prepend(txsEl, txRow(t, true), 30),
+    }, document.getElementById("live1"));
+    // Both columns share one stream; mirror its state on the second badge.
+    const l1 = document.getElementById("live1"), l2 = document.getElementById("live2");
+    const mo = new MutationObserver(() => { l2.className = l1.className; l2.textContent = l1.textContent; });
+    mo.observe(l1, { attributes: true, childList: true });
+    onLeave(() => mo.disconnect());
+    const tick = setInterval(() => document.querySelectorAll("[data-ms]").forEach((el) => (el.textContent = ago(+el.dataset.ms))), 1000);
+    onLeave(() => clearInterval(tick));
+  }
+
+  function renderStatus(s) {
+    const el = document.getElementById("readouts");
+    if (!el) return;
+    if (!s.indexing) { el.innerHTML = `<div><span class="k">${esc(s.network)}</span><span class="v">Not indexed yet</span></div>`; return; }
+    const lagSec = Math.max(0, s.lag_blocks || 0) / 7;
+    el.innerHTML = `
+      <div><span class="k">Chain head</span><span class="v">${fmt(s.head)}</span><span class="s">from the Rialo RPC</span></div>
+      <div><span class="k">Indexed tip</span><span class="v kel">${fmt(s.indexed_tip)}</span><span class="s">${fmt(s.lag_blocks)} blocks · ~${lagSec.toFixed(1)}s behind</span></div>
+      <div><span class="k">History backfill</span><span class="v">${(s.backfill.progress * 100).toFixed(1)}%</span><span class="s">${s.backfill.complete ? "complete" : "block " + fmt(s.backfill.next)}</span></div>
+      <div><span class="k">Oldest block on RPC</span><span class="v rpc">${fmt(s.oldest_block_served_by_rpc)}</span><span class="s">everything older is pruned</span></div>
+      <div><span class="k">Missing blocks</span><span class="v">${fmt(s.missing_blocks)}</span><span class="s">heights Kelvin could not fetch</span></div>`;
+    const lo = Math.max(0, s.backfill.from - (s.head - s.backfill.from) * 0.08), span = s.head - lo;
+    const x = (h) => ((h - lo) / span) * 100;
+    const tipFrom = (s.backfill.until ?? s.indexed_tip) + 1;
+    document.getElementById("track").innerHTML =
+      `<i class="pruned" style="width:${x(s.oldest_block_served_by_rpc ?? s.backfill.from)}%"></i>` +
+      `<i class="fill" style="left:${x(s.backfill.from)}%;width:${x(Math.min(s.backfill.next, tipFrom)) - x(s.backfill.from)}%"></i>` +
+      `<i class="fill" style="left:${x(tipFrom)}%;width:${x(s.indexed_tip + 1) - x(tipFrom)}%"></i>`;
+    document.getElementById("ticks").innerHTML =
+      `<span style="left:${x(s.backfill.from)}%">${(s.backfill.from / 1e6).toFixed(2)}M</span>` +
+      `<span style="right:0">${(s.head / 1e6).toFixed(2)}M head</span>`;
+    document.getElementById("rulernote").textContent = `${fmt(s.head - s.backfill.from)} blocks served by the RPC`;
+  }
+
+  // ---------- address ----------
+  async function address(a) {
+    view.innerHTML = `<div class="note">Loading ${esc(short(a))}…</div>`;
+    let s;
+    try { s = await api(`/address/${a}`); } catch (e) { return showError(e); }
+    const flows = s.rlo_transfers || {};
+    view.innerHTML = `
+      <section class="title"><h3>Address</h3><div class="id">${esc(a)}${copyBtn(a)}</div></section>
+      <section class="readouts">
+        <div><span class="k">In Kelvin's index</span><span class="v kel">${fmt(s.transaction_count)}</span><span class="s">transactions</span></div>
+        <div><span class="k">Rialo RPC returns</span><span class="v rpc">${s.transaction_count > 20 ? 20 : fmt(s.transaction_count)}</span><span class="s">newest only, no paging</span></div>
+        <div><span class="k">Balance</span><span class="v">${s.balance != null ? rlo(s.balance) : "–"}</span><span class="s">RLO, live from the RPC</span></div>
+        <div><span class="k">Received</span><span class="v in">${flows.received ? rlo(flows.received.total) : "0"}</span><span class="s">RLO in ${fmt(flows.received?.count || 0)} transfers</span></div>
+        <div><span class="k">Sent</span><span class="v">${flows.sent ? rlo(flows.sent.total) : "0"}</span><span class="s">RLO in ${fmt(flows.sent?.count || 0)} transfers</span></div>
+      </section>
+      ${s.first_seen ? `<dl class="kv panel"><dt>First seen</dt><dd>${when(s.first_seen.time)} · block ${blockLink(s.first_seen.block)} · ${txLink(s.first_seen.signature)}</dd>
+        <dt>Last seen</dt><dd>${when(s.last_seen.time)} · block ${blockLink(s.last_seen.block)} · ${txLink(s.last_seen.signature)}</dd></dl>` : ""}
+      <section class="panel">
+        <header>
+          <div class="seg" id="tab"><button type="button" data-t="txs" aria-pressed="true">Transactions</button><button type="button" data-t="transfers" aria-pressed="false">RLO and token transfers</button></div>
+          <div style="display:flex;gap:0.75rem;align-items:center;flex-wrap:wrap">
+            <div class="seg" id="order"><button type="button" data-o="desc" aria-pressed="true">Newest first</button><button type="button" data-o="asc" aria-pressed="false">Oldest first</button></div>
+            <span class="live off" id="live">Connecting…</span>
+          </div>
+        </header>
+        <div class="tablewrap"><table><thead id="thead"></thead><tbody id="rows"></tbody></table></div>
+        <div class="more"><button class="btn" type="button" id="more">Load more</button></div>
+      </section>`;
+    let tab = "txs", order = "desc", cursor = null, loading = false;
+    const rows = document.getElementById("rows"), more = document.getElementById("more");
+    const head = () => {
+      document.getElementById("thead").innerHTML = tab === "txs"
+        ? `<tr><th>Time (UTC)</th><th>Signature</th><th>Block</th><th>Activity</th><th class="amt">This address</th><th>Status</th></tr>`
+        : `<tr><th>Time (UTC)</th><th>Signature</th><th></th><th>Counterparty</th><th class="amt">Amount</th></tr>`;
+    };
+    const net = (t) => t.transfers.filter((x) => !x.mint).reduce((sum, x) => sum + (x.to === a ? BigInt(x.amount) : 0n) - (x.from === a ? BigInt(x.amount) : 0n), 0n);
+    const txRow = (t, fresh) => {
+      const n = net(t);
+      const amt = n === 0n ? "" : `<span class="${n > 0n ? "in" : ""}">${n > 0n ? "+" : ""}${rlo(n.toString())}</span>`;
+      const role = t.role?.signer ? `<span class="tag sig">signer</span>` : "";
+      return `<tr class="${fresh ? "new" : ""}"><td class="num" style="white-space:nowrap">${when(t.time).replace(" UTC", "")}</td><td>${txLink(t.signature)}</td><td>${blockLink(t.block)}</td><td>${role}${kinds(t.instructions)}</td><td class="amt">${amt}</td><td>${status(t.status)}</td></tr>`;
+    };
+    const trRow = (t) => {
+      const other = t.direction === "out" ? t.to : t.from;
+      return `<tr><td class="num" style="white-space:nowrap">${when(t.time).replace(" UTC", "")}</td><td>${txLink(t.signature)}</td><td>${t.direction === "out" ? "to" : `<span class="in">from</span>`}</td><td>${addr(other)}</td><td class="amt ${t.direction === "in" ? "in" : ""}">${t.direction === "out" ? "−" : "+"}${amount(t)}</td></tr>`;
+    };
+    async function load(reset) {
+      if (loading) return;
+      loading = true; more.disabled = true;
+      if (reset) { cursor = null; rows.innerHTML = `<tr><td colspan="6" class="empty">Loading…</td></tr>`; head(); }
+      try {
+        const page = await api(`/address/${a}/${tab}?limit=50&order=${order}${cursor ? "&cursor=" + encodeURIComponent(cursor) : ""}`);
+        if (reset) rows.innerHTML = "";
+        rows.insertAdjacentHTML("beforeend", page.items.map((t) => (tab === "txs" ? txRow(t, false) : trRow(t))).join(""));
+        if (!rows.children.length) rows.innerHTML = `<tr><td colspan="6" class="empty">Nothing indexed for this address yet.</td></tr>`;
+        cursor = page.next_cursor;
+        more.textContent = cursor ? "Load more" : "End of history";
+        more.disabled = !cursor;
+      } catch (e) { rows.innerHTML = `<tr><td colspan="6" class="error">${esc(e.message)}</td></tr>`; }
+      loading = false;
+    }
+    more.addEventListener("click", () => load(false));
+    const toggle = (groupId, attr, set) => document.getElementById(groupId).addEventListener("click", (e) => {
+      const b = e.target.closest("button");
+      if (!b) return;
+      document.querySelectorAll(`#${groupId} button`).forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+      set(b.dataset[attr]);
+      load(true);
+    });
+    toggle("tab", "t", (v) => (tab = v));
+    toggle("order", "o", (v) => (order = v));
+    load(true);
+    stream(`?address=${encodeURIComponent(a)}`, {
+      tx: (t) => { if (tab === "txs" && order === "desc") { rows.querySelector(".empty")?.closest("tr")?.remove(); rows.insertAdjacentHTML("afterbegin", txRow(t, true)); } },
+    }, document.getElementById("live"));
+  }
+
+  // ---------- transaction ----------
+  async function tx(sig) {
+    view.innerHTML = `<div class="note">Loading transaction…</div>`;
+    let t;
+    try { t = await api(`/tx/${sig}`); } catch (e) { return showError(e); }
+    const accounts = t.accounts.map((x) => `<tr><td>${addr(x.address)}</td><td>${x.signer ? `<span class="tag sig">signer</span>` : ""}${x.writable ? `<span class="tag">writable</span>` : `<span class="tag">read-only</span>`}</td></tr>`).join("");
+    const ixs = t.instructions.map((i) => `
+      <div class="ix ${i.inner_index != null ? "inner" : ""}">
+        <div class="head"><span class="mono muted">#${i.index}${i.inner_index != null ? "." + i.inner_index : ""}</span><b>${esc(i.program_name || short(i.program))}</b><span class="tag">${esc(i.kind ? i.kind.replace(/_/g, " ") : "not decoded")}</span>${addr(i.program, short(i.program, 4, 4))}</div>
+        ${i.accounts.length ? `<div class="note">Accounts: ${i.accounts.map((x) => addr(x, short(x, 4, 4))).join(", ")}</div>` : ""}
+        ${i.data ? `<details><summary>Data (${i.data.length} base58 characters)</summary><div class="mono" style="overflow-wrap:anywhere">${esc(i.data)}</div></details>` : ""}
+      </div>`).join("");
+    const transfers = t.transfers.length
+      ? t.transfers.map((x) => `<tr><td>${addr(x.from)}</td><td>→</td><td>${addr(x.to)}</td><td class="amt">${amount(x)}</td></tr>`).join("")
+      : `<tr><td class="empty">No RLO or token moved.</td></tr>`;
+    view.innerHTML = `
+      <section class="title"><h3>Transaction</h3><div class="id">${esc(sig)}${copyBtn(sig)}</div></section>
+      <dl class="kv panel">
+        <dt>Status</dt><dd>${status(t.status)}${t.error ? ` <span class="mono">${esc(JSON.stringify(t.error))}</span>` : ""}</dd>
+        <dt>Time</dt><dd>${when(t.time)} <span class="muted">(${ago(t.time_ms)}; the RPC's getTransaction returns block_time null)</span></dd>
+        <dt>Block</dt><dd>${blockLink(t.block)} · position ${t.index}</dd>
+        <dt>Fee payer</dt><dd>${addr(t.fee_payer, t.fee_payer)}</dd>
+        <dt>Fee</dt><dd>${rlo(t.fee)} RLO <span class="muted">(${fmt(t.fee)} kelvin)</span></dd>
+        <dt>Compute units</dt><dd>${t.compute_units != null ? fmt(t.compute_units) : "–"}</dd>
+      </dl>
+      <section class="panel"><header><h2>Transfers</h2></header><div class="tablewrap"><table>${transfers}</table></div></section>
+      <section class="panel"><header><h2>Instructions</h2><span class="note">${t.instructions.length} including inner</span></header>${ixs}</section>
+      <section class="panel"><header><h2>Accounts</h2></header><div class="tablewrap"><table>${accounts}</table></div></section>
+      ${t.logs ? `<section class="panel"><header><h2>Logs</h2></header><pre class="logs">${esc(t.logs.join("\n"))}</pre></section>` : ""}`;
+  }
+
+  // ---------- block ----------
+  async function block(h) {
+    view.innerHTML = `<div class="note">Loading block…</div>`;
+    let b;
+    try { b = await api(`/blocks/${h}`); } catch (e) { return showError(e); }
+    const rows = b.transactions.map((t) => `<tr><td>${txLink(t.signature)}</td><td>${kinds(t.instructions)}</td><td class="amt">${t.transfers.length ? amount(t.transfers[0]) + (t.transfers.length > 1 ? ` <span class="muted">+${t.transfers.length - 1}</span>` : "") : ""}</td><td>${status(t.status)}</td></tr>`).join("");
+    view.innerHTML = `
+      <section class="title"><h3>Block</h3><div class="id" style="font-size:1.6rem;font-family:var(--display);font-weight:800">${fmt(b.height)}</div></section>
+      <dl class="kv panel">
+        <dt>Time</dt><dd>${when(b.time)} <span class="muted">(${ago(b.time_ms)})</span></dd>
+        <dt>Transactions</dt><dd>${b.transaction_count} · ${b.system_transaction_count} system (not listed)</dd>
+        <dt>Neighbours</dt><dd><a href="#/block/${b.height - 1}">← ${fmt(b.height - 1)}</a> · <a href="#/block/${b.height + 1}">${fmt(b.height + 1)} →</a></dd>
+      </dl>
+      <section class="panel"><header><h2>User transactions</h2></header>
+        <div class="tablewrap"><table><thead><tr><th>Signature</th><th>Activity</th><th class="amt">Moved</th><th>Status</th></tr></thead>
+        <tbody>${rows || `<tr><td colspan="4" class="empty">Only system transactions in this block.</td></tr>`}</tbody></table></div></section>`;
+  }
+
+  // ---------- routing ----------
+  function route() {
+    leave();
+    window.scrollTo(0, 0);
+    const [, page, arg] = location.hash.split("/");
+    const q = document.getElementById("q");
+    if (page === "address" && arg) { q.value = arg; address(arg); }
+    else if (page === "tx" && arg) { q.value = arg; tx(arg); }
+    else if (page === "block" && /^\d+$/.test(arg || "")) { q.value = arg; block(arg); }
+    else { q.value = ""; home(); }
+  }
+  window.addEventListener("hashchange", route);
+  route();
+})();
+</script>
+</body>
+</html>

@@ -44,7 +44,9 @@ cargo build --release
 ```
 
 `run` applies migrations, starts the head follower and the backfill, and serves the API. Stop it
-with Ctrl-C; it resumes from its saved cursors. Then open <http://127.0.0.1:8080/docs>.
+with Ctrl-C; it resumes from its saved cursors. Then open <http://127.0.0.1:8080/> for the explorer
+(live blocks and transactions, address history, transaction and block pages) or
+<http://127.0.0.1:8080/docs> for the API reference.
 
 Other commands:
 
