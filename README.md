@@ -11,6 +11,8 @@
   <img src="https://img.shields.io/badge/Rialo-testnet-7048e8" alt="Rialo testnet">
 </p>
 
+**Live:** <https://kelvinscan.pages.dev> (testnet)
+
 **Kelvin** indexes every [Rialo](https://rialo.io) block and serves the full history the RPC
 cannot: every transaction of an address, pageable both ways, with block times, decoded
 instructions and value movements, plus a live feed and an explorer.

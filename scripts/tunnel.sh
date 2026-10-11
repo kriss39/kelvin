@@ -13,7 +13,17 @@ start)
         nohup cloudflared tunnel --no-autoupdate --protocol http2 --url http://127.0.0.1:8080 >> logs/tunnel.log 2>&1 &
         until grep -qo 'https://[a-z0-9-]*\.trycloudflare\.com' logs/tunnel.log; do sleep 1; done
     fi
-    echo "public URL: $(grep -o 'https://[a-z0-9-]*\.trycloudflare\.com' logs/tunnel.log | tail -1)"
+    url=$(grep -o 'https://[a-z0-9-]*\.trycloudflare\.com' logs/tunnel.log | tail -1)
+    echo "public URL: $url"
+    # Keep kelvinscan.pages.dev pointing at this tunnel when its address changes.
+    if [ "$url" != "$(cat logs/pages-backend.txt 2>/dev/null)" ] && [ -x deploy/pages/deploy.sh ]; then
+        if deploy/pages/deploy.sh "$url" > logs/pages-deploy.log 2>&1; then
+            echo "$url" > logs/pages-backend.txt
+            echo "https://kelvinscan.pages.dev now forwards to it"
+        else
+            echo "could not update kelvinscan.pages.dev; see logs/pages-deploy.log"
+        fi
+    fi
     ;;
 stop)
     if pkill -f "cloudflared tunnel.*127.0.0.1:8080"; then

@@ -41,7 +41,8 @@ For a stable address, `deploy/pages/deploy.sh [backend-url]` publishes
 `https://kelvinscan.pages.dev` on Cloudflare Pages (free): the explorer and docs are static there,
 and `/v1/*` and `/healthz` are forwarded to the Kelvin server (by default the current tunnel). When
 the server moves, run it again with the new URL; the public address stays the same. The first run
-asks to log in to Cloudflare.
+asks to log in to Cloudflare. `scripts/tunnel.sh start` (also run by `scripts/indexer.sh start`)
+redeploys it automatically whenever the tunnel comes up with a new address.
 
 To share the local explorer, `scripts/tunnel.sh start` opens a Cloudflare quick tunnel and prints
 an `https://<random>.trycloudflare.com` address (`stop`, `url` as well). The address changes on

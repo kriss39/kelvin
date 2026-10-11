@@ -35,6 +35,7 @@ start)
     start_one testnet --api 127.0.0.1:8080
     if [ "${DEVNET:-0}" = 1 ]; then start_one devnet --no-backfill --follow-workers 64; fi
     echo "explorer: http://127.0.0.1:8080/"
+    scripts/tunnel.sh start
     ;;
 stop)
     if pkill -INT -f "kelvin run"; then
