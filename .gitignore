@@ -1,0 +1,6 @@
+/target
+.env
+/logs
+# Internal planning notes stay local; the repository is meant to become public.
+/HAZIRLIK.md
+/notes

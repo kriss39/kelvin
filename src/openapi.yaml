@@ -1,0 +1,327 @@
+openapi: 3.1.0
+info:
+  title: Kelvin API
+  version: 0.1.0
+  summary: Full, pageable transaction history for Rialo.
+  description: |
+    Kelvin indexes every Rialo block and serves the history the RPC cannot: unlimited,
+    pageable address history, transactions with their block time, decoded instructions and
+    RLO transfers.
+
+    - Amounts are decimal strings in kelvin (1 RLO = 10^9 kelvin); they can exceed 2^53.
+    - Times are ISO 8601 UTC (`time`) plus milliseconds since the Unix epoch (`time_ms`).
+    - Lists return `next_cursor`; pass it back as `cursor` for the next page. `null` means the last page.
+    - Indexed blocks and transactions are final and served with long cache lifetimes.
+  license:
+    name: Apache-2.0
+    identifier: Apache-2.0
+servers:
+  - url: /
+paths:
+  /v1/{network}/status:
+    get:
+      summary: Indexing status
+      description: Head height, how far behind the index is, and backfill progress.
+      parameters: [{ $ref: "#/components/parameters/network" }]
+      responses:
+        "200":
+          description: Status
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Status" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /v1/{network}/blocks:
+    get:
+      summary: Indexed blocks
+      parameters:
+        - { $ref: "#/components/parameters/network" }
+        - { $ref: "#/components/parameters/limit" }
+        - { $ref: "#/components/parameters/order" }
+        - name: cursor
+          in: query
+          schema: { type: string, example: "31440000" }
+      responses:
+        "200":
+          description: A page of blocks, newest first unless `order=asc`
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items: { type: array, items: { $ref: "#/components/schemas/BlockBrief" } }
+                  next_cursor: { type: [string, "null"] }
+  /v1/{network}/blocks/{height}:
+    get:
+      summary: Block with its user transactions
+      parameters:
+        - { $ref: "#/components/parameters/network" }
+        - { name: height, in: path, required: true, schema: { type: integer, example: 16635551 } }
+      responses:
+        "200":
+          description: Block
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - { $ref: "#/components/schemas/BlockBrief" }
+                  - type: object
+                    properties:
+                      transactions: { type: array, items: { $ref: "#/components/schemas/TxSummary" } }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /v1/{network}/tx/{signature}:
+    get:
+      summary: Transaction detail
+      description: Accounts with their roles, all instructions (inner ones included), RLO transfers and logs.
+      parameters:
+        - { $ref: "#/components/parameters/network" }
+        - { name: signature, in: path, required: true, schema: { type: string }, description: First signature, base58 }
+      responses:
+        "200":
+          description: Transaction
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TxDetail" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /v1/{network}/address/{address}:
+    get:
+      summary: Address summary
+      description: Transaction count, first and last activity, RLO transfer totals and the live balance from the RPC.
+      parameters: [{ $ref: "#/components/parameters/network" }, { $ref: "#/components/parameters/address" }]
+      responses:
+        "200":
+          description: Summary
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AddressSummary" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+  /v1/{network}/address/{address}/txs:
+    get:
+      summary: Address history
+      description: Every indexed transaction the address takes part in, except as the invoked program. The Rialo RPC returns only the newest 20.
+      parameters:
+        - { $ref: "#/components/parameters/network" }
+        - { $ref: "#/components/parameters/address" }
+        - { $ref: "#/components/parameters/limit" }
+        - { $ref: "#/components/parameters/order" }
+        - { $ref: "#/components/parameters/txCursor" }
+      responses:
+        "200": { $ref: "#/components/responses/TxPage" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+  /v1/{network}/address/{address}/transfers:
+    get:
+      summary: RLO transfers to and from an address
+      parameters:
+        - { $ref: "#/components/parameters/network" }
+        - { $ref: "#/components/parameters/address" }
+        - { $ref: "#/components/parameters/limit" }
+        - { $ref: "#/components/parameters/order" }
+        - name: cursor
+          in: query
+          schema: { type: string, example: "16635551:1:0:-1" }
+      responses:
+        "200":
+          description: A page of transfers
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      allOf:
+                        - { $ref: "#/components/schemas/Transfer" }
+                        - type: object
+                          properties:
+                            signature: { type: string }
+                            block: { type: integer }
+                            index: { type: integer }
+                            time: { type: string, format: date-time }
+                            time_ms: { type: integer }
+                            direction: { type: string, enum: [in, out] }
+                  next_cursor: { type: [string, "null"] }
+        "400": { $ref: "#/components/responses/BadRequest" }
+  /v1/{network}/programs/{program}/txs:
+    get:
+      summary: Transactions that invoke a program
+      parameters:
+        - { $ref: "#/components/parameters/network" }
+        - { name: program, in: path, required: true, schema: { type: string, example: Qrac1eProcessor1111111111111111111111111111 } }
+        - { $ref: "#/components/parameters/limit" }
+        - { $ref: "#/components/parameters/order" }
+        - { $ref: "#/components/parameters/txCursor" }
+      responses:
+        "200": { $ref: "#/components/responses/TxPage" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+components:
+  parameters:
+    network:
+      name: network
+      in: path
+      required: true
+      schema: { type: string, enum: [testnet, devnet] }
+    address:
+      name: address
+      in: path
+      required: true
+      schema: { type: string, example: 8GFLC4J4h8AGGwku4JVzeWrkdY9oeWkZNUeQfsFkNN2p }
+      description: Base58 address
+    limit:
+      name: limit
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 100, default: 25 }
+    order:
+      name: order
+      in: query
+      schema: { type: string, enum: [desc, asc], default: desc }
+    txCursor:
+      name: cursor
+      in: query
+      schema: { type: string, example: "16635551:1" }
+      description: "`next_cursor` from the previous page"
+  responses:
+    BadRequest:
+      description: Malformed parameter
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    NotFound:
+      description: Not in the index
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    TxPage:
+      description: A page of transactions
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              items: { type: array, items: { $ref: "#/components/schemas/TxSummary" } }
+              next_cursor: { type: [string, "null"] }
+  schemas:
+    Error:
+      type: object
+      properties:
+        error: { type: string }
+    Status:
+      type: object
+      properties:
+        network: { type: string }
+        indexing: { type: boolean }
+        head: { type: integer, description: Latest block height reported by the RPC }
+        indexed_tip: { type: [integer, "null"], description: Highest block indexed by the head follower }
+        lag_blocks: { type: [integer, "null"] }
+        backfill:
+          type: object
+          properties:
+            from: { type: integer }
+            next: { type: integer }
+            until: { type: [integer, "null"] }
+            complete: { type: boolean }
+            progress: { type: number, minimum: 0, maximum: 1 }
+        oldest_block_served_by_rpc: { type: [integer, "null"] }
+        missing_blocks: { type: integer }
+    BlockBrief:
+      type: object
+      properties:
+        height: { type: integer }
+        time: { type: string, format: date-time }
+        time_ms: { type: integer }
+        transaction_count: { type: integer, description: Including system transactions }
+        system_transaction_count: { type: integer }
+    Role:
+      type: object
+      properties:
+        signer: { type: boolean }
+        writable: { type: boolean }
+    InstructionBrief:
+      type: object
+      properties:
+        program: { type: string }
+        program_name: { type: [string, "null"] }
+        kind: { type: [string, "null"], description: "Decoded type such as transfer; null when Kelvin has no decoder" }
+    Transfer:
+      type: object
+      properties:
+        from: { type: string }
+        to: { type: string }
+        amount: { type: string, description: Kelvin }
+        mint: { type: [string, "null"], description: null for native RLO }
+        instruction: { type: integer }
+        inner_instruction: { type: integer }
+    TxSummary:
+      type: object
+      properties:
+        signature: { type: string }
+        block: { type: integer }
+        index: { type: integer, description: Position in the block }
+        time: { type: string, format: date-time }
+        time_ms: { type: integer }
+        status: { type: string, enum: [success, failed] }
+        error: { description: The RPC's error object, present when failed }
+        fee: { type: string, description: Kelvin }
+        role: { $ref: "#/components/schemas/Role" }
+        instructions: { type: array, items: { $ref: "#/components/schemas/InstructionBrief" } }
+        transfers: { type: array, items: { $ref: "#/components/schemas/Transfer" } }
+    TxDetail:
+      type: object
+      properties:
+        signature: { type: string }
+        block: { type: integer }
+        index: { type: integer }
+        time: { type: string, format: date-time }
+        time_ms: { type: integer }
+        status: { type: string, enum: [success, failed] }
+        error: {}
+        fee: { type: string }
+        compute_units: { type: [integer, "null"] }
+        valid_from_ms: { type: [integer, "null"] }
+        fee_payer: { type: string }
+        accounts:
+          type: array
+          items:
+            type: object
+            properties:
+              address: { type: string }
+              signer: { type: boolean }
+              writable: { type: boolean }
+        instructions:
+          type: array
+          items:
+            type: object
+            properties:
+              index: { type: integer }
+              inner_index: { type: integer, description: Absent for top-level instructions }
+              program: { type: string }
+              program_name: { type: [string, "null"] }
+              kind: { type: [string, "null"] }
+              data: { type: string, description: Base58 }
+              accounts: { type: array, items: { type: string } }
+        transfers: { type: array, items: { $ref: "#/components/schemas/Transfer" } }
+        logs: { type: [array, "null"], items: { type: string } }
+    AddressSummary:
+      type: object
+      properties:
+        address: { type: string }
+        transaction_count: { type: integer }
+        first_seen: { $ref: "#/components/schemas/Seen" }
+        last_seen: { $ref: "#/components/schemas/Seen" }
+        rlo_transfers:
+          type: object
+          properties:
+            received: { $ref: "#/components/schemas/Flow" }
+            sent: { $ref: "#/components/schemas/Flow" }
+        balance: { type: [string, "null"], description: Live from the RPC, kelvin; null if the RPC did not answer in time }
+    Seen:
+      type: [object, "null"]
+      properties:
+        block: { type: integer }
+        time: { type: string, format: date-time }
+        signature: { type: string }
+    Flow:
+      type: object
+      properties:
+        count: { type: integer }
+        total: { type: string, description: Kelvin }
