@@ -143,7 +143,12 @@ async fn main() -> Result<()> {
         Cmd::Redecode { network } => {
             let (net, _) = db::network(&pool, &network).await?;
             let o = redecode::run(&pool, net).await?;
-            println!("scanned {} undecoded instructions · decoded {} · new transfers {}", num(o.scanned), num(o.decoded), num(o.transfers));
+            println!(
+                "scanned {} undecoded instructions · decoded {} · new transfers {}",
+                num(o.scanned),
+                num(o.decoded),
+                num(o.transfers)
+            );
             Ok(())
         }
     }

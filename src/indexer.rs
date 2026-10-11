@@ -130,7 +130,8 @@ pub async fn run(pool: &PgPool, net: i16, rpc: &Rpc, cfg: &Config, stop: watch::
                     let s = ingest::run(&pool, net, &rpc, &opts, stop.clone()).await?;
                     if !*stop.borrow() {
                         tracing::info!(task = "backfill", heights = s.heights, missing = s.missing, "complete");
-                        db::record_event(&pool, net, "backfill_complete", &format!("through height {}", tip_from - 1)).await?;
+                        db::record_event(&pool, net, "backfill_complete", &format!("through height {}", tip_from - 1))
+                            .await?;
                     }
                     Ok(())
                 }

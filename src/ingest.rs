@@ -57,7 +57,10 @@ pub struct Summary {
 enum Step {
     Fetch(u64),
     /// All heights up to `end` have been emitted; `not_listed` were absent from getBlocks.
-    SpanEnd { end: u64, not_listed: Vec<(u64, u64)> },
+    SpanEnd {
+        end: u64,
+        not_listed: Vec<(u64, u64)>,
+    },
 }
 
 enum Fetched {
@@ -83,7 +86,13 @@ fn gaps(start: u64, end: u64, listed: &[u64]) -> Vec<(u64, u64)> {
 
 /// Indexes from `opts.from` until `opts.until` is reached (never, when following the head), an
 /// error, or `stop`. Whatever was read before stopping is committed first.
-pub async fn run(pool: &PgPool, net: i16, rpc: &Rpc, opts: &Options, mut stop: watch::Receiver<bool>) -> Result<Summary> {
+pub async fn run(
+    pool: &PgPool,
+    net: i16,
+    rpc: &Rpc,
+    opts: &Options,
+    mut stop: watch::Receiver<bool>,
+) -> Result<Summary> {
     let (send, mut recv) = mpsc::channel::<Batch>(2);
     let cursor = opts.cursor;
     let writer = tokio::spawn({

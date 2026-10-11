@@ -14,7 +14,8 @@ pub const ASSOCIATED_TOKEN: &str = "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL
 pub const TOKEN: &str = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA";
 
 /// Programs `decode` understands; `kelvin redecode` revisits stored instructions of these.
-pub const DECODABLE: [&str; 7] = [SYSTEM, COMPUTE_BUDGET, ORACLE_PROCESSOR, ORACLE_REGISTRY, TOKEN_2022, ASSOCIATED_TOKEN, TOKEN];
+pub const DECODABLE: [&str; 7] =
+    [SYSTEM, COMPUTE_BUDGET, ORACLE_PROCESSOR, ORACLE_REGISTRY, TOKEN_2022, ASSOCIATED_TOKEN, TOKEN];
 
 pub fn label(program: &str) -> Option<&'static str> {
     Some(match program {
@@ -200,7 +201,13 @@ mod tests {
     #[test]
     fn system_transfer() {
         let d = decode(SYSTEM, &b58("3Bxs3zzLZLuLQEYX")).unwrap();
-        assert_eq!(d, Decoded { kind: "transfer", transfer: Some(Transfer { source: 0, dest: 1, mint: None, amount: 1_000_000_000 }) });
+        assert_eq!(
+            d,
+            Decoded {
+                kind: "transfer",
+                transfer: Some(Transfer { source: 0, dest: 1, mint: None, amount: 1_000_000_000 })
+            }
+        );
         let d = decode(SYSTEM, &b58("3Bxs412MvVNQj175")).unwrap();
         assert_eq!(d.transfer.unwrap().amount, 1);
     }
@@ -224,7 +231,13 @@ mod tests {
         let mut mint_to = vec![7];
         mint_to.extend(1_000_000u64.to_le_bytes());
         let d = decode(TOKEN_2022, &mint_to).unwrap();
-        assert_eq!(d, Decoded { kind: "mint_to", transfer: Some(Transfer { source: 0, dest: 1, mint: Some(0), amount: 1_000_000 }) });
+        assert_eq!(
+            d,
+            Decoded {
+                kind: "mint_to",
+                transfer: Some(Transfer { source: 0, dest: 1, mint: Some(0), amount: 1_000_000 })
+            }
+        );
 
         let mut checked = vec![12];
         checked.extend(42u64.to_le_bytes());

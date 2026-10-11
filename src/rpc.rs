@@ -96,9 +96,7 @@ impl Rpc {
     }
 
     async fn call_ok<T: DeserializeOwned>(&self, method: &str, params: Value) -> Result<T> {
-        self.call(method, params)
-            .await?
-            .map_err(|e| anyhow::anyhow!("{method}: RPC error {}: {}", e.code, e.message))
+        self.call(method, params).await?.map_err(|e| anyhow::anyhow!("{method}: RPC error {}: {}", e.code, e.message))
     }
 
     pub async fn block_height(&self) -> Result<u64> {
@@ -112,10 +110,7 @@ impl Rpc {
 
     /// `None` when the node has no block at `height` (pruned or not produced yet).
     pub async fn block(&self, height: u64) -> Result<Option<Block>> {
-        match self
-            .call::<WithContext<Block>>("getBlock", json!([{ "blockHeight": height }]))
-            .await?
-        {
+        match self.call::<WithContext<Block>>("getBlock", json!([{ "blockHeight": height }])).await? {
             Ok(b) => Ok(Some(b.value)),
             Err(e) if e.code == BLOCK_NOT_FOUND => Ok(None),
             Err(e) => bail!("getBlock {height}: RPC error {}: {}", e.code, e.message),

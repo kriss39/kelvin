@@ -53,7 +53,8 @@ struct AppState {
 }
 
 pub async fn serve(pool: PgPool, addr: SocketAddr, mut stop: watch::Receiver<bool>) -> Result<()> {
-    let rows: Vec<(i16, String, String)> = sqlx::query_as("SELECT id, name, rpc_url FROM networks").fetch_all(&pool).await?;
+    let rows: Vec<(i16, String, String)> =
+        sqlx::query_as("SELECT id, name, rpc_url FROM networks").fetch_all(&pool).await?;
     let mut networks = HashMap::new();
     for (id, name, url) in rows {
         let n = Arc::new(Network { id, rpc: Rpc::new(&url)?, head: AtomicU64::new(0) });
@@ -163,7 +164,8 @@ fn parse_key<const N: usize>(s: &str, what: &str) -> Result<[u8; N], ApiError> {
 }
 
 async fn address_id(pool: &PgPool, key: &[u8]) -> Result<Option<i64>, ApiError> {
-    let row: Option<(i64,)> = sqlx::query_as("SELECT id FROM addresses WHERE address = $1").bind(key).fetch_optional(pool).await?;
+    let row: Option<(i64,)> =
+        sqlx::query_as("SELECT id FROM addresses WHERE address = $1").bind(key).fetch_optional(pool).await?;
     Ok(row.map(|(id,)| id))
 }
 
@@ -196,7 +198,8 @@ impl Page {
         let after = match &q.cursor {
             None => vec![if asc { -1 } else { i64::MAX }; parts],
             Some(c) => {
-                let nums: Vec<i64> = c.split(':').map(str::parse).collect::<Result<_, _>>().map_err(|_| bad_cursor())?;
+                let nums: Vec<i64> =
+                    c.split(':').map(str::parse).collect::<Result<_, _>>().map_err(|_| bad_cursor())?;
                 if nums.len() != parts {
                     return Err(bad_cursor());
                 }
@@ -633,12 +636,13 @@ async fn tx(State(st): State<AppState>, Path((net, signature)): Path<(String, St
         })
         .collect();
 
-    let logs: Option<(String,)> = sqlx::query_as("SELECT lines FROM logs WHERE network = $1 AND height = $2 AND idx = $3")
-        .bind(n.id)
-        .bind(height)
-        .bind(idx)
-        .fetch_optional(&st.pool)
-        .await?;
+    let logs: Option<(String,)> =
+        sqlx::query_as("SELECT lines FROM logs WHERE network = $1 AND height = $2 AND idx = $3")
+            .bind(n.id)
+            .bind(height)
+            .bind(idx)
+            .fetch_optional(&st.pool)
+            .await?;
 
     Ok(cached(
         FINAL,

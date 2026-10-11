@@ -48,9 +48,7 @@ async fn address_ids(pool: &PgPool, keys: &[[u8; 32]]) -> Result<Vec<i64>> {
         .await
         .context("looking up address ids")?;
     let by_key: HashMap<Vec<u8>, i64> = rows.into_iter().map(|(id, k)| (k, id)).collect();
-    keys.iter()
-        .map(|k| by_key.get(*k).copied().context("address missing right after insert"))
-        .collect()
+    keys.iter().map(|k| by_key.get(*k).copied().context("address missing right after insert")).collect()
 }
 
 pub async fn write(pool: &PgPool, net: i16, b: &Batch, cursor: Cursor) -> Result<()> {
@@ -202,12 +200,7 @@ pub async fn write(pool: &PgPool, net: i16, b: &Batch, cursor: Cursor) -> Result
         Cursor::Tip => Some("UPDATE ingest_state SET tip_next = $2, tip_updated_at = now() WHERE network = $1"),
     };
     if let (Some(sql), Some(through)) = (advance, b.through) {
-        sqlx::query(sql)
-            .bind(net)
-            .bind(through as i64 + 1)
-            .execute(&mut *tx)
-            .await
-            .context("advancing cursor")?;
+        sqlx::query(sql).bind(net).bind(through as i64 + 1).execute(&mut *tx).await.context("advancing cursor")?;
     }
 
     tx.commit().await?;

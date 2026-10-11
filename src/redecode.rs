@@ -17,10 +17,8 @@ pub struct Outcome {
 
 pub async fn run(pool: &PgPool, net: i16) -> Result<Outcome> {
     let keys: Vec<Vec<u8>> = DECODABLE.iter().map(|p| bs58::decode(p).into_vec()).collect::<Result<_, _>>()?;
-    let programs: Vec<(i64, Vec<u8>)> = sqlx::query_as("SELECT id, address FROM addresses WHERE address = ANY($1)")
-        .bind(&keys)
-        .fetch_all(pool)
-        .await?;
+    let programs: Vec<(i64, Vec<u8>)> =
+        sqlx::query_as("SELECT id, address FROM addresses WHERE address = ANY($1)").bind(&keys).fetch_all(pool).await?;
     let ids: Vec<i64> = programs.iter().map(|p| p.0).collect();
     let name = |id: i64| programs.iter().find(|p| p.0 == id).map(|p| bs58::encode(&p.1).into_string());
 
@@ -116,7 +114,13 @@ pub async fn run(pool: &PgPool, net: i16) -> Result<Outcome> {
         db.commit().await?;
         out.decoded += kinds.len() as u64;
         out.transfers += inserted;
-        tracing::info!(height = after.0, scanned = out.scanned, decoded = out.decoded, transfers = out.transfers, "redecoding");
+        tracing::info!(
+            height = after.0,
+            scanned = out.scanned,
+            decoded = out.decoded,
+            transfers = out.transfers,
+            "redecoding"
+        );
     }
     Ok(out)
 }

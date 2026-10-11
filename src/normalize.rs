@@ -281,7 +281,8 @@ impl Batch {
             self.txs.account_keys.push(keys.clone());
 
             let mut invoked = vec![false; keys.len()];
-            let all_ixs = msg.instructions.iter().chain(meta.inner_instructions.iter().flatten().map(|i| &i.instruction));
+            let all_ixs =
+                msg.instructions.iter().chain(meta.inner_instructions.iter().flatten().map(|i| &i.instruction));
             for ix in all_ixs {
                 // An out-of-range inner index is reported by program_of below.
                 if let Some(slot) = invoked.get_mut(ix.program_id_index as usize) {
@@ -303,7 +304,16 @@ impl Batch {
             for inner in meta.inner_instructions.iter().flatten() {
                 let pos = next_inner.entry(inner.instruction_index).or_default();
                 let program = program_of(&inner.instruction)?;
-                self.push_ix(height, idx, inner.instruction_index.into(), *pos, &inner.instruction, program, &keys, ok)?;
+                self.push_ix(
+                    height,
+                    idx,
+                    inner.instruction_index.into(),
+                    *pos,
+                    &inner.instruction,
+                    program,
+                    &keys,
+                    ok,
+                )?;
                 *pos += 1;
             }
 
@@ -339,7 +349,8 @@ impl Batch {
         keys: &[Addr],
         ok: bool,
     ) -> Result<()> {
-        let data = bs58::decode(&ix.data).into_vec().with_context(|| format!("tx {idx} ix {ix_idx}: bad base58 data"))?;
+        let data =
+            bs58::decode(&ix.data).into_vec().with_context(|| format!("tx {idx} ix {ix_idx}: bad base58 data"))?;
         let decoded = decode::decode(program, &data);
 
         self.stats.ixs += 1;
