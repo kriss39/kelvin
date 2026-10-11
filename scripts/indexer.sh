@@ -3,7 +3,8 @@
 # its saved cursors, so stopping or shutting down loses nothing.
 #
 #   testnet: head follower + backfill, and the API and explorer on 127.0.0.1:8080
-#   devnet:  head follower only (its backfill is left for a server)
+#   devnet:  only with DEVNET=1, head follower only. Devnet blocks carry ~180 KB of oracle data
+#            and take ~10 s per getBlock (Oct 2026), so it cannot keep up from a laptop.
 set -e
 cd "$(dirname "$0")/.."
 
@@ -32,7 +33,7 @@ start)
     until docker compose exec -T db pg_isready -U kelvin >/dev/null 2>&1; do sleep 1; done
     mkdir -p logs
     start_one testnet --api 127.0.0.1:8080
-    start_one devnet --no-backfill
+    if [ "${DEVNET:-0}" = 1 ]; then start_one devnet --no-backfill --follow-workers 64; fi
     echo "explorer: http://127.0.0.1:8080/"
     ;;
 stop)
