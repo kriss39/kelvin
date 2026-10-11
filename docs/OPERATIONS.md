@@ -37,6 +37,12 @@ scripts/indexer.sh stop       # finishes the current batch; progress is kept
 
 Logs go to `logs/indexer-testnet.log`.
 
+For a stable address, `deploy/pages/deploy.sh [backend-url]` publishes
+`https://kelvinscan.pages.dev` on Cloudflare Pages (free): the explorer and docs are static there,
+and `/v1/*` and `/healthz` are forwarded to the Kelvin server (by default the current tunnel). When
+the server moves, run it again with the new URL; the public address stays the same. The first run
+asks to log in to Cloudflare.
+
 To share the local explorer, `scripts/tunnel.sh start` opens a Cloudflare quick tunnel and prints
 an `https://<random>.trycloudflare.com` address (`stop`, `url` as well). The address changes on
 every start and works while the Mac is on. Quick tunnels hold server-sent events back in 128 KiB
