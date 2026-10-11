@@ -90,6 +90,16 @@ es.addEventListener("tx", (e) => {
 - `GET /address/{address}/activity`: the address's transactions per UTC day and its six most
   frequent RLO counterparties. Days the backfill has not reached yet are absent, not zero.
 
+## Rialo-native views
+
+Passed through from the RPC, normalized and cached briefly; a failing RPC gives 502.
+
+- `GET /network`: epoch, validators (host, key, stake, unbonding period), the DKG committee
+  (participants, threshold, state) and the RPC version.
+- `GET /address/{address}/rex`: REX requests the address created (nonce, active, update
+  frequency, delay, validators per duty, duties).
+- `GET /tx/{signature}/workflow`: the workflow lineage of a transaction.
+
 ## Status and RPC checks
 
 - `GET /status`: chain head, indexed tip and lag, backfill progress, the oldest block the RPC

@@ -60,6 +60,8 @@ struct Network {
     updates: broadcast::Sender<Arc<Update>>,
     /// `/activity` result and when it was computed; shared by all callers for `ACTIVITY_TTL`.
     activity: Mutex<Option<(Instant, Value)>>,
+    /// `/network` result, refreshed at most every `NETWORK_TTL`.
+    overview: Mutex<Option<(Instant, Value)>>,
 }
 
 #[derive(Clone)]
@@ -81,6 +83,7 @@ pub async fn serve(pool: PgPool, addr: SocketAddr, mut stop: watch::Receiver<boo
             head: AtomicU64::new(0),
             updates: broadcast::channel(256).0,
             activity: Mutex::new(None),
+            overview: Mutex::new(None),
         });
         tokio::spawn({
             let n = n.clone();
@@ -127,6 +130,9 @@ pub async fn serve(pool: PgPool, addr: SocketAddr, mut stop: watch::Receiver<boo
         .route("/v1/{net}/stream", get(live))
         .route("/v1/{net}/rpc-conformance", get(rpc_conformance))
         .route("/v1/{net}/activity", get(activity))
+        .route("/v1/{net}/network", get(network_overview))
+        .route("/v1/{net}/address/{address}/rex", get(address_rex))
+        .route("/v1/{net}/tx/{signature}/workflow", get(tx_workflow))
         .route("/v1/{net}/address/{address}/activity", get(address_activity))
         .layer(TimeoutLayer::with_status_code(StatusCode::SERVICE_UNAVAILABLE, REQUEST_TIMEOUT))
         .layer(CorsLayer::new().allow_origin(Any).allow_methods([Method::GET]))
@@ -148,13 +154,15 @@ pub async fn serve(pool: PgPool, addr: SocketAddr, mut stop: watch::Receiver<boo
 enum ApiError {
     BadRequest(String),
     NotFound(String),
+    /// The Rialo RPC failed while answering a request that is passed through to it.
+    Upstream(String),
     Internal(anyhow::Error),
 }
 
 impl std::fmt::Display for ApiError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::BadRequest(m) | Self::NotFound(m) => f.write_str(m),
+            Self::BadRequest(m) | Self::NotFound(m) | Self::Upstream(m) => f.write_str(m),
             Self::Internal(e) => write!(f, "{e:#}"),
         }
     }
@@ -177,6 +185,7 @@ impl IntoResponse for ApiError {
         let (status, message) = match self {
             Self::BadRequest(m) => (StatusCode::BAD_REQUEST, m),
             Self::NotFound(m) => (StatusCode::NOT_FOUND, m),
+            Self::Upstream(m) => (StatusCode::BAD_GATEWAY, m),
             Self::Internal(e) => {
                 tracing::error!("api: {e:#}");
                 (StatusCode::INTERNAL_SERVER_ERROR, "internal error".to_owned())
@@ -1088,6 +1097,147 @@ async fn address_activity(State(st): State<AppState>, Path((net, address)): Path
                 "address": b58(&a), "transfers": c, "received": rin, "sent": rout,
             })).collect::<Vec<_>>(),
         }),
+    ))
+}
+
+// ---------- Rialo-native views (passed through from the RPC) ----------
+
+const NETWORK_TTL: Duration = Duration::from_secs(60);
+
+async fn rpc(n: &Network, method: &str, params: Value) -> Result<Value, ApiError> {
+    n.rpc.raw(method, params).await.map_err(|e| ApiError::Upstream(format!("Rialo RPC: {e:#}")))
+}
+
+/// Quotes Rialo wraps some enum values in (`"\"OneShot\""`).
+fn unquote(v: &Value) -> Value {
+    match v.as_str() {
+        Some(s) => Value::String(s.trim_matches('"').to_owned()),
+        None => v.clone(),
+    }
+}
+
+/// Epoch, validators, the DKG committee and the RPC version, cached for a minute.
+async fn network_overview(State(st): State<AppState>, Path(net): Path<String>) -> ApiResult {
+    let n = network(&st, &net)?;
+    if let Some((at, v)) = n.overview.lock().expect("not poisoned").as_ref()
+        && at.elapsed() < NETWORK_TTL
+    {
+        return Ok(cached(60, v.clone()));
+    }
+    let epoch = rpc(&n, "getEpochInfo", json!([])).await?;
+    let validators = rpc(&n, "getValidatorAccounts", json!([{ "use_frozen": false }])).await?;
+    let dkg = rpc(&n, "getDkgStatus", json!([])).await?;
+    let commit = rpc(&n, "getVersion", json!([])).await?;
+    let ctx = rpc(&n, "getTransactionCount", json!([])).await?;
+    let validators: Vec<Value> = validators["value"]
+        .as_array()
+        .map(|vs| {
+            vs.iter()
+                .map(|v| {
+                    json!({
+                        "hostname": v["hostname"],
+                        "pubkey": v["pubkey"],
+                        "stake": v["stake"],
+                        "commission": v["commission"],
+                        "commission_rate": v["commission_rate"],
+                        "unbonding_ms": v["unbonding_periods"].as_object().and_then(|m| m.values().next()).cloned(),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    let v = json!({
+        "network": net,
+        "epoch": epoch["epoch"],
+        "block_height": epoch["blockHeight"],
+        "slots_in_epoch": epoch["slotsInEpoch"],
+        "transaction_count": epoch["transactionCount"],
+        "validators": validators,
+        "dkg": {
+            "state": dkg["state"],
+            "participants": dkg["numParticipants"],
+            "threshold": dkg["threshold"],
+            "committee_initialized": dkg["committeeInitialized"],
+        },
+        "rpc_version": ctx["context"]["api_version"],
+        "rpc_commit": commit,
+    });
+    *n.overview.lock().expect("not poisoned") = Some((Instant::now(), v.clone()));
+    Ok(cached(60, v))
+}
+
+/// Hex-encoded ASCII (as REX nonces are) decoded, or `None`.
+fn hex_ascii(s: &str) -> Option<String> {
+    if !s.len().is_multiple_of(2) {
+        return None;
+    }
+    let bytes =
+        (0..s.len()).step_by(2).map(|i| u8::from_str_radix(&s[i..i + 2], 16).ok()).collect::<Option<Vec<u8>>>()?;
+    String::from_utf8(bytes).ok().filter(|t| !t.is_empty() && t.chars().all(|c| c.is_ascii_graphic()))
+}
+
+/// REX requests an address created, from `getRexRequests`. `created_at` is passed through as the
+/// RPC formats it (see the `rex_created_at` conformance check).
+async fn address_rex(State(st): State<AppState>, Path((net, address)): Path<(String, String)>) -> ApiResult {
+    let n = network(&st, &net)?;
+    let _: [u8; 32] = parse_key(&address, "address")?;
+    let r = rpc(&n, "getRexRequests", json!([{ "creator": address }])).await?;
+    let requests: Vec<Value> = r["rex_requests"]
+        .as_array()
+        .map(|rs| {
+            rs.iter()
+                .map(|x| {
+                    let nonce = x["nonce"].as_str().unwrap_or_default();
+                    json!({
+                        "nonce": hex_ascii(nonce).unwrap_or_else(|| nonce.to_owned()),
+                        "active": x["isActive"],
+                        "description": x["description"],
+                        "update_frequency": unquote(&x["updateFrequency"]),
+                        "starting": unquote(&x["startingTimestamp"]),
+                        "created_at": x["createdAt"],
+                        "validators_per_duty": x["validatorsPerDuty"],
+                        "delay_ms": x["rexRequestDelayMs"],
+                        "duties": x["duties"].as_array().map_or(0, Vec::len),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    Ok(cached(60, json!({ "address": address, "requests": requests })))
+}
+
+/// The workflow a transaction belongs to, from `getWorkflowLineage`: the transactions it
+/// triggered or was triggered by, with depth, block, outcome and programs.
+async fn tx_workflow(State(st): State<AppState>, Path((net, signature)): Path<(String, String)>) -> ApiResult {
+    let n = network(&st, &net)?;
+    let _: [u8; 64] = parse_key(&signature, "signature")?;
+    let r = rpc(&n, "getWorkflowLineage", json!([{ "signature": signature }])).await?;
+    let nodes: Vec<Value> = r["lineage"]["workflowNodes"]
+        .as_array()
+        .map(|ns| {
+            ns.iter()
+                .map(|x| {
+                    let d = &x["data"];
+                    json!({
+                        "signature": x["id"],
+                        "depth": x["depth"],
+                        "block": d["blockHeight"],
+                        "time_ms": d["timestamp"],
+                        "time": d["timestamp"].as_i64().map(|ms| iso8601(ms / 1000)),
+                        "success": d["success"],
+                        "instruction_count": d["instructionCount"],
+                        "programs": d["instructionProgramIds"],
+                        "subscriptions": x["subscriptions"],
+                        "children": x["workflowChildren"],
+                        "has_more_children": x["hasMoreChildren"],
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    Ok(cached(
+        30,
+        json!({ "signature": signature, "nodes": nodes, "leaves": r["leaves"], "truncated": r["truncated"] }),
     ))
 }
 

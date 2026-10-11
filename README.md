@@ -47,8 +47,9 @@ Working on testnet; devnet next.
 - **Decoding** of System, Compute Budget, Token-2022 / SPL Token, Associated Token and oracle
   instructions: 98.9% of instructions; the rest keep their raw data.
 - **API** with OpenAPI docs, a live stream and hourly RPC conformance checks.
-- **Explorer** at `/`: live feed, the last hour by program, an activity heat chart, and address
-  (daily activity, top counterparties), transaction and block pages.
+- **Explorer** at `/`: live feed, the last hour by program, an activity heat chart, address pages
+  (daily activity, top counterparties, REX requests), transaction pages (workflow lineage), block
+  pages and a network page (validators, DKG committee, epoch).
 
 ## Quick start
 

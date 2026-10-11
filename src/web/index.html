@@ -52,6 +52,7 @@
 .tag[class*="p-"] { color: var(--pc); border-color: color-mix(in srgb, var(--pc) 40%, transparent); background: color-mix(in srgb, var(--pc) 9%, transparent); }
 .chart .bar.h1b { fill: var(--t1); } .chart .bar.h2b { fill: var(--t2); } .chart .bar.h3b { fill: var(--t3); } .chart .bar.h4b { fill: var(--t4); } .chart .bar.h5b { fill: var(--t5); } .chart .bar.h6b { fill: var(--t6); }
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 html, body { margin: 0; }
 body { background: var(--bg); color: var(--ink); font: 15px/1.55 var(--display); -webkit-font-smoothing: antialiased; }
 a { color: var(--ice); text-decoration: none; }
@@ -242,6 +243,10 @@ pre.logs { margin: 0; padding: 1rem 1.1rem; font-family: var(--mono); font-size:
 pre.json { margin: 0; padding: 1rem 1.1rem; font-family: var(--mono); font-size: 0.76rem; line-height: 1.55; overflow: auto; max-height: 32rem; }
 pre.json .k { color: var(--c-oracle); } pre.json .s { color: var(--c-system); } pre.json .n { color: var(--c-ata); } pre.json .b { color: var(--c-tokenomics); }
 
+.seats { display: flex; gap: 0.6rem; flex-wrap: wrap; }
+.seat { width: 2.4rem; height: 2.4rem; border-radius: 50%; border: 2px dashed var(--line); background: var(--raised); }
+.seat.on { border: 0; background: var(--thermal); box-shadow: 0 0 0 3px var(--ice-soft); }
+
 /* ---------- quick-view drawer ---------- */
 [data-sig] { cursor: pointer; }
 .feed li[data-sig]:hover { background: var(--raised); }
@@ -299,7 +304,7 @@ footer.foot .brand svg { width: 20px; height: 20px; }
       <input id="q" type="search" placeholder="Search an address, transaction or block" aria-label="Search an address, transaction signature or block height" autocomplete="off" spellcheck="false">
       <kbd>/</kbd>
     </form>
-    <nav class="links"><a href="#/rpc" id="nav-rpc">RPC checks</a><a href="/docs">API</a></nav>
+    <nav class="links"><a href="#/network" id="nav-net">Network</a><a href="#/rpc" id="nav-rpc">RPC checks</a><a href="/docs">API</a></nav>
   </div>
 </div>
 <main id="view" aria-live="polite"></main>
@@ -311,7 +316,7 @@ footer.foot .brand svg { width: 20px; height: 20px; }
 <footer class="foot">
   <a class="brand" href="#/"><svg aria-hidden="true"><use href="#mark"/></svg><b>Kelvin</b></a>
   <span>Rialo history, down to the last kelvin. Amounts in RLO; 1 RLO = 10⁹ kelvin.</span>
-  <a href="#/rpc">RPC checks</a><a href="/docs">API docs</a>
+  <a href="#/network">Network</a><a href="#/rpc">RPC checks</a><a href="/docs">API docs</a>
 </footer>
 
 <script>
@@ -699,6 +704,7 @@ footer.foot .brand svg { width: 20px; height: 20px; }
         <div class="card days"><header><h2>Activity by day</h2><span class="note" id="daysnote"></span></header><div class="body"><svg id="days" viewBox="0 0 1000 100" preserveAspectRatio="none" role="img" aria-label="Transactions per day"></svg><div class="axisrow"><span id="dayfirst"></span><span id="daylast"></span></div></div></div>
         <div class="card"><header><h2>Top counterparties</h2><span class="note">by RLO transfers</span></header><ul class="cp" id="cp"><li class="empty">Loading…</li></ul></div>
       </section>
+      <div id="rex"></div>
       <section class="card">
         <header>
           <div class="seg" id="tab"><button type="button" data-t="txs" aria-pressed="true">Transactions</button><button type="button" data-t="transfers" aria-pressed="false">Transfers</button></div>
@@ -711,6 +717,7 @@ footer.foot .brand svg { width: 20px; height: 20px; }
         <div class="more"><button class="btn" type="button" id="more">Load more</button></div>
       </section>`;
     addressActivity(a);
+    rexCard(a);
     let tab = "txs", order = "desc", cursor = null, loading = false;
     const rows = document.getElementById("rows"), more = document.getElementById("more");
     const head = () => {
@@ -854,9 +861,11 @@ footer.foot .brand svg { width: 20px; height: 20px; }
       <section class="card">${p.kv}<div class="totals"><span>The RPC's getTransaction returns <b>block_time: null</b> for this transaction; Kelvin takes the time from its block.</span></div></section>
       <section class="card"><header><h2>Value moved</h2></header>${p.flows}</section>
       <section class="card"><header><h2>Instructions</h2><span class="note">${t.instructions.length} including inner</span></header>${p.ixs}</section>
+      <div id="workflow"></div>
       <section class="card"><header><h2>Accounts</h2></header><div class="tablewrap"><table>${accounts}</table></div></section>
       ${t.logs ? `<section class="card"><details><summary style="padding:0.9rem 1.1rem">Program logs · ${t.logs.length} lines</summary><pre class="logs">${esc(t.logs.join("\n"))}</pre></details></section>` : ""}
       <section class="card"><details><summary style="padding:0.9rem 1.1rem">Raw JSON · <span class="mono">GET /v1/${esc(NET)}/tx/${esc(short(sig, 6, 4))}</span></summary><pre class="json">${jsonHtml(t)}</pre></details></section>`;
+    workflowCard(sig);
   }
 
   // ---------- quick view ----------
@@ -925,6 +934,71 @@ footer.foot .brand svg { width: 20px; height: 20px; }
         <tbody>${rows || `<tr><td colspan="4" class="empty">Only system transactions in this block.</td></tr>`}</tbody></table></div></section>`;
   }
 
+  // ---------- Rialo-native views ----------
+  const PROGRAM_NAMES = {
+    "11111111111111111111111111111111": "System", "ComputeBudget111111111111111111111111111111": "ComputeBudget",
+    "Qrac1eProcessor1111111111111111111111111111": "OracleProcessor", "Qrac1eRegistry11111111111111111111111111111": "OracleRegistry",
+    "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb": "Token2022", "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL": "AssociatedToken",
+    "TokenomicsGovernance11111111111111111111111": "TokenomicsGovernance",
+  };
+  const programChip = (id) => { const name = PROGRAM_NAMES[id]; return `<span class="tag ${family({ program_name: name })}">${esc(name || short(id, 4, 4))}</span>`; };
+
+  async function networkPage() {
+    view.innerHTML = `<div class="note">Loading network…</div>`;
+    let n;
+    try { n = await api("/network"); } catch (e) { return showError(e); }
+    const infinite = String(n.slots_in_epoch) === "18446744073709551615" || n.slots_in_epoch >= 1.8e19;
+    const dots = Array.from({ length: n.dkg.participants || 0 }, (_, i) => `<span class="seat ${i < n.dkg.threshold ? "on" : ""}"></span>`).join("");
+    view.innerHTML = `
+      <section class="head"><div><span class="eyebrow">Rialo ${esc(NET)} · network</span><h1>Validators and consensus</h1></div></section>
+      <section class="card"><div class="kpis">
+        <div style="--rc:var(--t2)"><span class="k">Epoch</span><span class="v">${fmt(n.epoch)}</span><span class="s">${infinite ? "no fixed length reported" : fmt(n.slots_in_epoch) + " slots"}</span></div>
+        <div style="--rc:var(--c-system)"><span class="k">Validators</span><span class="v">${fmt(n.validators.length)}</span><span class="s">active set</span></div>
+        <div style="--rc:var(--c-oracle)"><span class="k">DKG committee</span><span class="v">${fmt(n.dkg.threshold)} of ${fmt(n.dkg.participants)}</span><span class="s">${esc(String(n.dkg.state || "").replace(/_/g, " "))}</span></div>
+        <div style="--rc:var(--t5)"><span class="k">Transactions</span><span class="v">${approx(n.transaction_count)}</span><span class="s">since genesis, per the RPC</span></div>
+        <div style="--rc:var(--c-budget)"><span class="k">RPC</span><span class="v" style="font-size:1.05rem">${esc(n.rpc_version || "–")}</span><span class="s mono">${esc(String(n.rpc_commit || "").slice(0, 8))}</span></div>
+      </div></section>
+      <section class="pair">
+        <div class="card"><header><h2>Validators</h2><span class="note">from getValidatorAccounts</span></header>
+          <div class="tablewrap"><table><thead><tr><th>Host</th><th>Validator</th><th class="amt">Stake</th><th class="amt">Unbonding</th></tr></thead><tbody>
+          ${n.validators.map((v) => `<tr><td><b>${esc(v.hostname || "–")}</b></td><td>${identicon(v.pubkey).replace('class="ident"', 'class="ident" style="width:22px;height:22px;border-radius:5px;vertical-align:middle;margin-right:0.5rem"')}${addr(v.pubkey)}</td><td class="amt">${fmt(v.stake)}</td><td class="amt">${v.unbonding_ms ? (v.unbonding_ms / 86400000).toFixed(0) + " days" : "–"}</td></tr>`).join("")}
+          </tbody></table></div></div>
+        <div class="card"><header><h2>Threshold committee</h2><span class="note">getDkgStatus</span></header>
+          <div class="body"><div class="seats">${dots}</div>
+          <p class="note" style="margin:0.8rem 0 0">Distributed key generation: ${fmt(n.dkg.participants)} participants hold shares of one key, and any ${fmt(n.dkg.threshold)} of them together can use it. No single validator holds it. State: <b>${esc(String(n.dkg.state || "").replace(/_/g, " "))}</b>.</p></div></div>
+      </section>
+      ${infinite ? `<div class="card"><div class="body note">The RPC reports <span class="mono">slotsInEpoch = 18,446,744,073,709,551,615</span> (2<sup>64</sup> − 1): epoch ${fmt(n.epoch)} has no end it can name. Kelvin tracks this on <a href="#/rpc">RPC checks</a>.</div></div>` : ""}`;
+  }
+
+  async function rexCard(a) {
+    let r;
+    try { r = await api(`/address/${a}/rex`); } catch (e) { return; }
+    const el = document.getElementById("rex");
+    if (!el || !r.requests.length) return;
+    const active = r.requests.filter((x) => x.active).length;
+    const freqs = [...new Set(r.requests.map((x) => x.update_frequency))];
+    el.innerHTML = `<section class="card"><header><h2>REX requests</h2><span class="note">${fmt(r.requests.length)} created by this address · ${fmt(active)} active · ${esc(freqs.join(", "))}</span></header>
+      <div class="tablewrap"><table><thead><tr><th>Nonce</th><th>Status</th><th>Frequency</th><th>Start</th><th class="amt">Delay</th><th class="amt">Validators per duty</th><th class="amt">Duties</th><th>Created (as the RPC reports it)</th></tr></thead><tbody>
+      ${r.requests.slice(0, 15).map((x) => `<tr><td class="mono">${esc(short(x.nonce, 8, 6))}</td><td>${x.active ? `<span class="status">Active</span>` : `<span class="muted">Inactive</span>`}</td><td>${esc(x.update_frequency)}</td><td>${esc(x.starting)}</td><td class="amt">${fmt(x.delay_ms)} ms</td><td class="amt">${fmt(x.validators_per_duty)}</td><td class="amt">${fmt(x.duties)}</td><td class="mono" style="font-size:0.75rem" title="Year ${esc(String(x.created_at).split("-")[0])}: see RPC checks">${esc(x.created_at)}</td></tr>`).join("")}
+      </tbody></table></div>${r.requests.length > 15 ? `<div class="totals"><span>${fmt(r.requests.length - 15)} more not shown</span></div>` : ""}</section>`;
+  }
+
+  async function workflowCard(sig) {
+    let w;
+    try { w = await api(`/tx/${sig}/workflow`); } catch (e) { return; }
+    const el = document.getElementById("workflow");
+    if (!el) return;
+    const alone = w.nodes.length <= 1 && !(w.nodes[0]?.children || []).length && !(w.nodes[0]?.subscriptions || []).length;
+    el.innerHTML = `<section class="card"><header><h2>Workflow</h2><span class="note">from getWorkflowLineage</span></header>
+      ${alone ? `<div class="empty">This transaction is a workflow of one: it was not triggered by another transaction and triggered none itself.</div>` :
+        w.nodes.map((n) => `<div class="ix" style="padding-left:${1.1 + (n.depth || 0) * 1.5}rem">
+          <div class="top"><span class="mono muted">depth ${n.depth}</span>${n.signature === sig ? `<b>This transaction</b>` : txLink(n.signature)}<span class="status ${n.success ? "" : "bad"}">${n.success ? "Success" : "Failed"}</span><span class="note">${n.time ? when(n.time) + " UTC" : ""} · block ${blockLink(n.block)}</span></div>
+          <div>${(n.programs || []).map(programChip).join("")}</div>
+          ${(n.subscriptions || []).length ? `<div class="note">Subscriptions: ${n.subscriptions.length}</div>` : ""}
+        </div>`).join("")}
+      ${w.truncated ? `<div class="totals"><span>The RPC truncated this lineage.</span></div>` : ""}</section>`;
+  }
+
   // ---------- routing ----------
   function route() {
     closeTx(false);
@@ -932,10 +1006,12 @@ footer.foot .brand svg { width: 20px; height: 20px; }
     window.scrollTo(0, 0);
     const [, page, arg] = location.hash.split("/");
     document.getElementById("nav-rpc").toggleAttribute("aria-current", page === "rpc");
+    document.getElementById("nav-net").toggleAttribute("aria-current", page === "network");
     if (page === "address" && arg) { q.value = arg; address(arg); }
     else if (page === "tx" && arg) { q.value = arg; tx(arg); }
     else if (page === "block" && /^\d+$/.test(arg || "")) { q.value = arg; block(arg); }
     else if (page === "rpc") { q.value = ""; rpcPage(); }
+    else if (page === "network") { q.value = ""; networkPage(); }
     else { q.value = ""; home(); }
   }
   window.addEventListener("hashchange", route);

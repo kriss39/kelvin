@@ -180,6 +180,32 @@ paths:
       parameters: [{ $ref: "#/components/parameters/network" }, { $ref: "#/components/parameters/address" }]
       responses:
         "200": { description: Activity, content: { application/json: { schema: { type: object } } } }
+  /v1/{network}/network:
+    get:
+      summary: Epoch, validators, DKG committee and RPC version
+      description: Passed through from getEpochInfo, getValidatorAccounts, getDkgStatus and getVersion; cached for a minute.
+      parameters: [{ $ref: "#/components/parameters/network" }]
+      responses:
+        "200": { description: Network overview, content: { application/json: { schema: { type: object } } } }
+        "502": { description: The Rialo RPC failed }
+  /v1/{network}/address/{address}/rex:
+    get:
+      summary: REX requests an address created
+      description: From getRexRequests. Nonces are decoded from hex-encoded ASCII; createdAt is passed through as the RPC formats it.
+      parameters: [{ $ref: "#/components/parameters/network" }, { $ref: "#/components/parameters/address" }]
+      responses:
+        "200": { description: REX requests, content: { application/json: { schema: { type: object } } } }
+        "502": { description: The Rialo RPC failed }
+  /v1/{network}/tx/{signature}/workflow:
+    get:
+      summary: The workflow a transaction belongs to
+      description: From getWorkflowLineage - the transactions it triggered or was triggered by, with depth, block, outcome and programs.
+      parameters:
+        - { $ref: "#/components/parameters/network" }
+        - { name: signature, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: Workflow lineage, content: { application/json: { schema: { type: object } } } }
+        "502": { description: The Rialo RPC failed }
   /v1/{network}/rpc-conformance:
     get:
       summary: How the Rialo RPC behaves, checked hourly

@@ -52,6 +52,16 @@ pub const CHECKS: &[Check] = &[
         title: "Consistent transaction count",
         expected: "getTransactionCount never decreases across five calls in a row",
     },
+    Check {
+        id: "epoch_length",
+        title: "Epoch length",
+        expected: "getEpochInfo reports a finite number of slots per epoch",
+    },
+    Check {
+        id: "rex_created_at",
+        title: "REX request timestamps",
+        expected: "getRexRequests reports createdAt as a plausible date",
+    },
     Check { id: "cors", title: "Browser access (CORS)", expected: "responses carry Access-Control-Allow-Origin" },
     Check { id: "version", title: "RPC version", expected: "informational" },
 ];
@@ -116,6 +126,8 @@ pub async fn run(pool: &PgPool, net: i16, rpc: &Rpc) -> Result<Vec<(&'static str
     record("balance_changes", balance_changes(rpc).await);
     record("history_retention", history_retention(pool, net).await);
     record("transaction_count_monotonic", transaction_count(rpc).await);
+    record("epoch_length", epoch_length(rpc).await);
+    record("rex_created_at", rex_created_at(pool, net, rpc).await);
     record(
         "cors",
         rpc.cors_allow_origin().await.map(|h| match h {
@@ -219,6 +231,40 @@ async fn transaction_count(rpc: &Rpc) -> Result<(bool, String)> {
     let backwards = seen.windows(2).any(|w| w[1] < w[0]);
     let list: Vec<String> = seen.iter().map(u64::to_string).collect();
     Ok((backwards, list.join(", ")))
+}
+
+async fn epoch_length(rpc: &Rpc) -> Result<(bool, String)> {
+    let v = rpc.raw("getEpochInfo", json!([])).await?;
+    let slots = v["slotsInEpoch"].as_u64().context("getEpochInfo: no slotsInEpoch")?;
+    Ok((slots == u64::MAX, format!("epoch {}, slotsInEpoch {slots}", v["epoch"])))
+}
+
+/// Uses recent oracle-registry callers, since those create REX requests: the first of the five
+/// most frequent that has any.
+async fn rex_created_at(pool: &PgPool, net: i16, rpc: &Rpc) -> Result<(bool, String)> {
+    let registry = bs58::decode(crate::decode::ORACLE_REGISTRY).into_vec()?;
+    let callers: Vec<(Vec<u8>,)> = sqlx::query_as(
+        "SELECT a.address FROM instructions i
+         JOIN txs t ON t.network = i.network AND t.height = i.height AND t.idx = i.idx
+         JOIN addresses a ON a.id = t.fee_payer
+         WHERE i.network = $1 AND i.program = (SELECT id FROM addresses WHERE address = $2) AND i.inner_idx = -1
+           AND i.height >= (SELECT coalesce(tip_next, backfill_next) - 50000 FROM ingest_state WHERE network = $1)
+         GROUP BY a.address ORDER BY count(*) DESC LIMIT 5",
+    )
+    .bind(net)
+    .bind(&registry)
+    .fetch_all(pool)
+    .await?;
+    for (creator,) in callers {
+        let creator = bs58::encode(creator).into_string();
+        let v = rpc.raw("getRexRequests", json!([{ "creator": creator }])).await?;
+        let Some(first) = v["rex_requests"].get(0) else { continue };
+        let created = first["createdAt"].as_str().unwrap_or_default().to_owned();
+        // "+58609-02-20 11:51:57.000 UTC": a year far beyond today suggests milliseconds read as seconds.
+        let year: i64 = created.trim_start_matches('+').split('-').next().and_then(|y| y.parse().ok()).unwrap_or(0);
+        return Ok((!(2020..=2100).contains(&year), format!("createdAt {created} for {creator}")));
+    }
+    anyhow::bail!("no recent oracle-registry caller with REX requests")
 }
 
 async fn version(rpc: &Rpc) -> Result<(bool, String)> {
