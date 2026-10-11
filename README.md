@@ -46,7 +46,8 @@ Working on testnet; devnet next.
 - **Backfill** from the oldest block the RPC serves at 130–220 blocks/s; no missing blocks so far.
 - **Decoding** of System, Compute Budget, Token-2022 / SPL Token, Associated Token and oracle
   instructions: 98.9% of instructions; the rest keep their raw data.
-- **API** with OpenAPI docs, a live stream and hourly RPC conformance checks.
+- **API** with OpenAPI docs, a live stream, CSV export and hourly RPC conformance checks.
+- **TypeScript SDK** and an **MCP server** for AI agents.
 - **Explorer** at `/`: live feed, the last hour by program, an activity heat chart, address pages
   (daily activity, top counterparties, REX requests), transaction pages (workflow lineage), block
   pages and a network page (validators, DKG committee, epoch).
@@ -77,6 +78,8 @@ curl "http://127.0.0.1:8080/v1/testnet/address/8GFLC4J4h8AGGwku4JVzeWrkdY9oeWkZN
 | [docs/API.md](docs/API.md) | Conventions, paging, the live stream, examples in curl and JavaScript |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Pipeline, cursors, finality, storage design, decoding, conformance, testing |
 | [docs/OPERATIONS.md](docs/OPERATIONS.md) | Commands, configuration, deploying to Oracle Cloud, monitoring, maintenance |
+| [sdk/typescript](sdk/typescript/README.md) | TypeScript client: typed calls, history iterators, live subscriptions |
+| [sdk/mcp](sdk/mcp/README.md) | MCP server so AI agents can query Rialo history |
 | [brand/](brand/README.md) | Logo, colours and the link-preview card |
 | [`src/openapi.yaml`](src/openapi.yaml) | The API specification |
 
@@ -97,6 +100,8 @@ src/
   web/            the explorer page
 migrations/       schema
 deploy/           Docker image, compose stack, deploy and instance scripts
+sdk/typescript/   TypeScript client
+sdk/mcp/          MCP server for AI agents
 tests/fixtures/   real testnet blocks for the normalizer tests
 ```
 
