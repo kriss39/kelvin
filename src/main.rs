@@ -83,6 +83,11 @@ enum Cmd {
     },
     /// Row counts and on-disk size per table.
     Sizes,
+    /// Fetch heights recorded as not found or not listed again (the indexer does this hourly).
+    RetryGaps {
+        #[arg(long, default_value = "testnet")]
+        network: String,
+    },
     /// Run the RPC conformance checks once and print the results (the indexer runs them hourly).
     Conformance {
         #[arg(long, default_value = "testnet")]
@@ -146,6 +151,10 @@ async fn main() -> Result<()> {
         }
         Cmd::Status { network } => status(&pool, &network).await,
         Cmd::Sizes => print_sizes(&pool).await,
+        Cmd::RetryGaps { network } => {
+            let (net, url) = db::network(&pool, &network).await?;
+            indexer::retry_gaps(&pool, net, &Rpc::new(&url)?).await
+        }
         Cmd::Conformance { network } => {
             let (net, url) = db::network(&pool, &network).await?;
             for (id, issue, observed) in conformance::run(&pool, net, &Rpc::new(&url)?).await? {

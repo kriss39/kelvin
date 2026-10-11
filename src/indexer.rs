@@ -12,7 +12,7 @@ use tokio::sync::watch;
 use crate::conformance;
 use crate::db::{self, Cursor};
 use crate::ingest::{self, Options, Until};
-use crate::normalize;
+use crate::normalize::{self, Batch};
 use crate::rpc::Rpc;
 
 /// Blocks are final as soon as the RPC serves them (79 of 79 head blocks were unchanged when
@@ -22,6 +22,9 @@ const RETRY_AFTER: Duration = Duration::from_secs(30);
 const RETENTION_SAMPLE_EVERY: Duration = Duration::from_secs(3600);
 const RESET_CHECK_EVERY: Duration = Duration::from_secs(600);
 const CONFORMANCE_EVERY: Duration = Duration::from_secs(3600);
+const GAP_RETRY_EVERY: Duration = Duration::from_secs(3600);
+/// Heights re-fetched per gap retry, so a long outage's backlog is worked off over several runs.
+const GAP_RETRY_MAX: i64 = 2_000;
 /// The reset check compares the stored block this far below the follower's cursor with the RPC.
 const RESET_CHECK_DEPTH: u64 = 1_000;
 
@@ -79,6 +82,13 @@ pub async fn run(pool: &PgPool, net: i16, rpc: &Rpc, cfg: &Config, stop: watch::
                 tracing::info!(checks = results.len(), quirks, "rpc conformance");
                 Ok(())
             }
+        }
+    });
+    spawn_every(Duration::from_secs(600), GAP_RETRY_EVERY, "gap retry", {
+        let (pool, rpc) = (pool.clone(), rpc.clone());
+        move || {
+            let (pool, rpc) = (pool.clone(), rpc.clone());
+            async move { retry_gaps(&pool, net, &rpc).await }
         }
     });
     spawn_every(RESET_CHECK_EVERY, RESET_CHECK_EVERY, "reset check", {
@@ -194,6 +204,46 @@ where
             tokio::time::sleep(period).await;
         }
     });
+}
+
+/// Fetches heights recorded as `not_found` or `not_listed` again: load-balanced nodes trail each
+/// other, so these are often transient. A fully recovered range leaves `missing_blocks`.
+pub async fn retry_gaps(pool: &PgPool, net: i16, rpc: &Rpc) -> Result<()> {
+    let ranges: Vec<(i64, i64)> = sqlx::query_as(
+        "SELECT from_height, to_height FROM missing_blocks
+         WHERE network = $1 AND reason IN ('not_found', 'not_listed') ORDER BY from_height LIMIT 100",
+    )
+    .bind(net)
+    .fetch_all(pool)
+    .await?;
+    let mut budget = GAP_RETRY_MAX;
+    for (from, to) in ranges {
+        let n = to - from + 1;
+        if n > budget {
+            break;
+        }
+        budget -= n;
+        let mut batch = Batch::default();
+        let mut found = 0;
+        for h in from..=to {
+            if let Some(b) = rpc.block(h as u64).await?
+                && batch.push(&b).is_ok()
+            {
+                found += 1;
+            }
+        }
+        if found > 0 {
+            db::write(pool, net, &batch, Cursor::None).await?;
+        }
+        let sql = if found == n {
+            "DELETE FROM missing_blocks WHERE network = $1 AND from_height = $2"
+        } else {
+            "UPDATE missing_blocks SET seen_at = now() WHERE network = $1 AND from_height = $2"
+        };
+        sqlx::query(sql).bind(net).bind(from).execute(pool).await?;
+        tracing::info!(from, to, recovered = found, "gap retry");
+    }
+    Ok(())
 }
 
 /// A reset shows up as the head moving backwards, or as a stored block that the RPC now serves
