@@ -391,3 +391,115 @@ impl Batch {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::Batch;
+    use crate::model::Block;
+
+    struct Expect {
+        user_txs: usize,
+        sys_txs: u64,
+        transfers: usize,
+        token_transfers: usize,
+        inner: usize,
+        accounts: usize,
+        fingerprint: i64,
+        kinds: &'static str,
+    }
+
+    // Real testnet blocks; the expectations match what the indexer stored for them.
+    fn check(json: &str, e: Expect) -> Batch {
+        let block: Block = serde_json::from_str(json).expect("fixture parses");
+        let mut b = Batch::default();
+        b.push(&block).expect("block normalizes");
+        assert_eq!(b.txs.height.len(), e.user_txs, "user transactions");
+        assert_eq!(b.stats.sys_txs, e.sys_txs, "system transactions");
+        assert_eq!(b.transfers.amount.len(), e.transfers, "transfers");
+        assert_eq!(b.transfers.mint.iter().filter(|m| m.is_some()).count(), e.token_transfers, "token transfers");
+        assert_eq!(b.ixs.inner_idx.iter().filter(|&&i| i >= 0).count(), e.inner, "inner instructions");
+        assert_eq!(b.accounts.address.len(), e.accounts, "tx_accounts rows");
+        assert_eq!(b.blocks.fingerprint, vec![e.fingerprint]);
+        let kinds: Vec<&str> = b.ixs.kind.iter().map(|k| k.as_deref().unwrap_or("-")).collect();
+        assert_eq!(kinds.join(","), e.kinds);
+        b
+    }
+
+    #[test]
+    fn plain_transfer() {
+        check(
+            include_str!("../tests/fixtures/block_16802722.json"),
+            Expect {
+                user_txs: 1,
+                sys_txs: 1,
+                transfers: 1,
+                token_transfers: 0,
+                inner: 0,
+                accounts: 2,
+                fingerprint: 4566755088743683761,
+                kinds: "transfer",
+            },
+        );
+    }
+
+    #[test]
+    fn failed_transaction_moves_nothing() {
+        let b = check(
+            include_str!("../tests/fixtures/block_16635879.json"),
+            Expect {
+                user_txs: 2,
+                sys_txs: 1,
+                transfers: 1,
+                token_transfers: 0,
+                inner: 0,
+                accounts: 9,
+                fingerprint: 2625571836112769084,
+                kinds: "transfer,-",
+            },
+        );
+        let failed: Vec<i32> = (0..b.txs.idx.len()).filter(|&i| b.txs.err[i].is_some()).map(|i| b.txs.idx[i]).collect();
+        assert_eq!(failed.len(), 1);
+        assert!(!b.transfers.idx.contains(&failed[0]), "a failed transaction records no transfers");
+    }
+
+    #[test]
+    fn oracle_report_with_inner_account_creation() {
+        check(
+            include_str!("../tests/fixtures/block_16636172.json"),
+            Expect {
+                user_txs: 1,
+                sys_txs: 1,
+                transfers: 2,
+                token_transfers: 0,
+                inner: 2,
+                accounts: 3,
+                fingerprint: -785171530000799208,
+                kinds: "set_compute_unit_limit,set_loaded_accounts_data_size_limit,report,create_account,create_account",
+            },
+        );
+    }
+
+    #[test]
+    fn token_2022_transfer_with_associated_account() {
+        let b = check(
+            include_str!("../tests/fixtures/block_17131902.json"),
+            Expect {
+                user_txs: 1,
+                sys_txs: 1,
+                transfers: 2,
+                token_transfers: 1,
+                inner: 4,
+                accounts: 5,
+                fingerprint: -8899623210557161263,
+                kinds: "create_idempotent,transfer_checked,get_account_data_size,create_account,\
+                        initialize_immutable_owner,initialize_account3",
+            },
+        );
+        // Top-level instructions come first: the token amount with its mint, then the rent the
+        // inner create_account paid in RLO for the new token account.
+        assert_eq!(b.transfers.amount, ["10000000000", "2074080"]);
+        assert_eq!(b.transfers.mint[1], None);
+        let mint = b.transfers.mint[0].expect("token transfer has a mint");
+        assert!(bs58::encode(b.addresses[mint as usize]).into_string().starts_with("M4Uzk6ws"));
+    }
+}
