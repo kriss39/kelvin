@@ -50,6 +50,17 @@ every start and works while the Mac is on. Quick tunnels hold server-sent events
 chunks; the explorer notices the missing `hello` event within 6 s and polls every 4 s instead. A restart, a crash or a sleeping laptop loses nothing:
 both cursors are committed with the data.
 
+### Tests
+
+```sh
+cargo test                                     # unit and fixture tests
+docker compose exec -T db psql -U kelvin -c 'CREATE DATABASE kelvin_test'
+KELVIN_TEST_DATABASE_URL=postgres://kelvin:kelvin@127.0.0.1:54329/kelvin_test cargo test
+```
+
+The second form adds the end-to-end API test. It drops and recreates the schema of the database
+it is given, so never point it at the indexer's database.
+
 ## Deploying (Oracle Cloud Always Free)
 
 The target is an Ampere A1 machine (arm64) running Ubuntu 24.04 with a 150 GB boot volume.

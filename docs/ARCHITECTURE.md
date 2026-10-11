@@ -183,4 +183,10 @@ change: the RPC now sends CORS headers, which earlier community reports said it 
 - During development, API output for random transactions was compared field by field with the
   RPC's raw `getBlock` data (12 of 12 identical), and complete address histories were paged in
   both directions and checked for order, duplicates and count.
-- CI runs `cargo fmt --check`, `clippy -D warnings` and the tests on every push.
+- An end-to-end API test (`src/api.rs`, module `integration`) writes the four fixture blocks to a
+  real Postgres with the indexer's own writer, starts the HTTP server on a free port and checks
+  block and transaction detail, transfer order, address paging (one transaction per page until
+  the cursor runs out), CSV export, failed transactions and error codes. It runs only when
+  `KELVIN_TEST_DATABASE_URL` is set, because it wipes that database.
+- CI runs `cargo fmt --check`, `clippy -D warnings` and all tests, the end-to-end one against a
+  Postgres service container, on every push.

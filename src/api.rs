@@ -76,7 +76,14 @@ struct AppState {
     programs: Arc<Mutex<HashMap<String, (Instant, Value)>>>,
 }
 
-pub async fn serve(pool: PgPool, addr: SocketAddr, mut stop: watch::Receiver<bool>) -> Result<()> {
+pub async fn serve(pool: PgPool, addr: SocketAddr, stop: watch::Receiver<bool>) -> Result<()> {
+    let listener = tokio::net::TcpListener::bind(addr).await?;
+    tracing::info!(%addr, "API listening");
+    serve_on(listener, pool, stop).await
+}
+
+/// Serves on an already bound listener (tests bind port 0).
+pub async fn serve_on(listener: tokio::net::TcpListener, pool: PgPool, mut stop: watch::Receiver<bool>) -> Result<()> {
     // A pool of its own, so slow API queries are cut off without touching the indexer's writes.
     let pool = sqlx::postgres::PgPoolOptions::new()
         .max_connections(16)
@@ -164,8 +171,6 @@ pub async fn serve(pool: PgPool, addr: SocketAddr, mut stop: watch::Receiver<boo
         .layer(CompressionLayer::new())
         .with_state(state);
 
-    let listener = tokio::net::TcpListener::bind(addr).await?;
-    tracing::info!(%addr, "API listening");
     axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>())
         .with_graceful_shutdown(async move {
             let _ = stop.wait_for(|s| *s).await;
@@ -1745,5 +1750,112 @@ mod tests {
         assert_eq!(iso8601(1_789_652_533), "2026-09-17T13:42:13Z");
         assert_eq!(iso8601(951_782_400), "2000-02-29T00:00:00Z");
         assert_eq!(iso8601(1_798_761_599), "2026-12-31T23:59:59Z");
+    }
+}
+
+/// End-to-end: real Postgres, fixture blocks written by the indexer's own code, the HTTP server on
+/// an ephemeral port. Runs only when KELVIN_TEST_DATABASE_URL names a database it may wipe.
+#[cfg(test)]
+mod integration {
+    use serde_json::Value;
+    use tokio::sync::watch;
+
+    use crate::db::{self, Cursor};
+    use crate::model::Block;
+    use crate::normalize::Batch;
+
+    const FIXTURES: [&str; 4] = [
+        include_str!("../tests/fixtures/block_16635879.json"),
+        include_str!("../tests/fixtures/block_16636172.json"),
+        include_str!("../tests/fixtures/block_16802722.json"),
+        include_str!("../tests/fixtures/block_17131902.json"),
+    ];
+
+    async fn get(base: &str, path: &str) -> (u16, String) {
+        let r = reqwest::get(format!("{base}{path}")).await.expect("request");
+        (r.status().as_u16(), r.text().await.expect("body"))
+    }
+
+    async fn json(base: &str, path: &str) -> Value {
+        let (status, body) = get(base, path).await;
+        assert_eq!(status, 200, "{path}: {body}");
+        serde_json::from_str(&body).expect("json")
+    }
+
+    #[tokio::test]
+    async fn api_end_to_end() {
+        let Ok(url) = std::env::var("KELVIN_TEST_DATABASE_URL") else {
+            eprintln!("skipped: set KELVIN_TEST_DATABASE_URL to a database the test may wipe");
+            return;
+        };
+        let pool = db::connect(&url).await.expect("connect");
+        sqlx::query("DROP SCHEMA public CASCADE").execute(&pool).await.expect("drop");
+        sqlx::query("CREATE SCHEMA public").execute(&pool).await.expect("create");
+        db::migrate(&pool).await.expect("migrate");
+
+        let blocks: Vec<Block> = FIXTURES.iter().map(|f| serde_json::from_str(f).expect("fixture")).collect();
+        let mut batch = Batch::default();
+        for b in &blocks {
+            batch.push(b).expect("normalize");
+        }
+        db::write(&pool, 1, &batch, Cursor::None).await.expect("write");
+        db::start_backfill(&pool, 1, 16_635_303).await.expect("cursor");
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("bind");
+        let base = format!("http://{}/v1/testnet", listener.local_addr().expect("addr"));
+        let (_stop_tx, stop) = watch::channel(false);
+        tokio::spawn(crate::api::serve_on(listener, pool.clone(), stop));
+
+        // The Token-2022 block: one user transaction, rent in RLO plus a token transfer.
+        let b = json(&base, "/blocks/17131902").await;
+        assert_eq!(b["transactions"].as_array().unwrap().len(), 1);
+        let sig = b["transactions"][0]["signature"].as_str().unwrap().to_owned();
+        let tx = json(&base, &format!("/tx/{sig}")).await;
+        assert_eq!(tx["status"], "success");
+        assert_eq!(tx["time"], "2026-09-18T09:43:06Z");
+        let amounts: Vec<&str> =
+            tx["transfers"].as_array().unwrap().iter().map(|t| t["amount"].as_str().unwrap()).collect();
+        // In execution order: rent for the token account (inside instruction 0), then the transfer.
+        assert_eq!(amounts, ["2074080", "10000000000"]);
+        assert!(tx["instructions"].as_array().unwrap().iter().any(|i| i["kind"] == "transfer_checked"));
+
+        // Address history: the fee payer, paged one transaction at a time.
+        let payer = tx["fee_payer"].as_str().unwrap().to_owned();
+        let summary = json(&base, &format!("/address/{payer}")).await;
+        let total = summary["transaction_count"].as_i64().unwrap();
+        assert!(total >= 1);
+        let (mut seen, mut cursor) = (0, String::new());
+        loop {
+            let page = json(&base, &format!("/address/{payer}/txs?limit=1{cursor}")).await;
+            seen += page["items"].as_array().unwrap().len() as i64;
+            match page["next_cursor"].as_str() {
+                Some(c) => cursor = format!("&cursor={c}"),
+                None => break,
+            }
+        }
+        assert_eq!(seen, total, "paging returns every transaction once");
+
+        // CSV: a header plus one line per transaction.
+        let (status, csv) = get(&base, &format!("/address/{payer}/export.csv")).await;
+        assert_eq!(status, 200);
+        assert!(csv.starts_with("time_utc,signature,"));
+        assert_eq!(csv.lines().count() as i64, total + 1);
+
+        // Failed transactions are reported with their error and move nothing.
+        let failed = json(&base, "/blocks/16635879").await;
+        let f =
+            failed["transactions"].as_array().unwrap().iter().find(|t| t["status"] == "failed").expect("a failed tx");
+        assert!(f["error"].is_object());
+        assert!(f["transfers"].as_array().unwrap().is_empty());
+
+        // Errors.
+        assert_eq!(get(&base, "/address/not-base58!/txs").await.0, 400);
+        assert_eq!(get(&base, "/address/t2J87f5HDtd4UkpszzBCm6nfbRgkJHRrbJtxuWpwVAG/txs?cursor=x").await.0, 400);
+        let (status, body) = get(&base, "/blocks/5").await;
+        assert_eq!(status, 404);
+        assert!(body.contains("pruned"), "{body}");
+        assert_eq!(get(&base.replace("/testnet", "/mainnet"), "/status").await.0, 404);
+        let (status, _) = get(&base.replace("/v1/testnet", ""), "/healthz").await;
+        assert_eq!(status, 200);
     }
 }
