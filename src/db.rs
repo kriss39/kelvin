@@ -203,9 +203,22 @@ pub async fn write(pool: &PgPool, net: i16, b: &Batch, cursor: Cursor) -> Result
         sqlx::query(sql).bind(net).bind(through as i64 + 1).execute(&mut *tx).await.context("advancing cursor")?;
     }
 
+    // New blocks at the head are announced to API processes (live stream); delivered on commit.
+    if let (Cursor::Tip, Some(first), Some(last)) = (cursor, b.blocks.height.first(), b.blocks.height.last()) {
+        sqlx::query("SELECT pg_notify($1, $2)")
+            .bind(TIP_CHANNEL)
+            .bind(format!("{net}:{first}:{last}"))
+            .execute(&mut *tx)
+            .await
+            .context("notifying")?;
+    }
+
     tx.commit().await?;
     Ok(())
 }
+
+/// Postgres channel carrying `network:first_height:last_height` for each batch the head follower commits.
+pub const TIP_CHANNEL: &str = "kelvin_tip";
 
 /// Which `ingest_state` cursor a committed batch advances.
 #[derive(Clone, Copy)]

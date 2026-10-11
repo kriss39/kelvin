@@ -80,6 +80,7 @@ All paths are under `/v1/{network}`, where `network` is `testnet` or `devnet`.
 | `GET /tx/{signature}` | Accounts and roles, all instructions, transfers, logs |
 | `GET /blocks`, `GET /blocks/{height}` | Indexed blocks, and one block with its transactions |
 | `GET /programs/{program}/txs` | Transactions that invoke a program |
+| `GET /stream[?address=]` | Server-sent events for new blocks and transactions as they are indexed |
 
 Lists take `limit` (1–100, default 25) and return `next_cursor`; pass it back as `cursor`.
 Amounts are strings in kelvin. The full spec is in [`src/openapi.yaml`](src/openapi.yaml).

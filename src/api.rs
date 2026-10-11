@@ -2,7 +2,8 @@
 //! Amounts are decimal strings in kelvin (1 RLO = 10^9 kelvin) because they exceed 2^53; times
 //! are ISO 8601 UTC plus milliseconds since the epoch. Lists page with an opaque `next_cursor`.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
+use std::convert::Infallible;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -11,13 +12,16 @@ use std::time::Duration;
 use anyhow::Result;
 use axum::extract::{Path, Query, State};
 use axum::http::{HeaderValue, Method, StatusCode, header};
+use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::routing::get;
 use axum::{Json, Router};
+use futures::{Stream, StreamExt, stream};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sqlx::PgPool;
-use tokio::sync::watch;
+use sqlx::postgres::PgListener;
+use tokio::sync::{broadcast, watch};
 use tower_http::compression::CompressionLayer;
 use tower_http::cors::{Any, CorsLayer};
 
@@ -44,12 +48,16 @@ struct Network {
     rpc: Rpc,
     /// Latest head seen by a background poller, so API calls never wait on the RPC for it.
     head: AtomicU64,
+    /// Newly indexed head blocks, for `/stream` subscribers.
+    updates: broadcast::Sender<Arc<Update>>,
 }
 
 #[derive(Clone)]
 struct AppState {
     pool: PgPool,
     networks: Arc<HashMap<String, Arc<Network>>>,
+    /// Ends open streams on shutdown; graceful shutdown would otherwise wait on them forever.
+    stop: watch::Receiver<bool>,
 }
 
 pub async fn serve(pool: PgPool, addr: SocketAddr, mut stop: watch::Receiver<bool>) -> Result<()> {
@@ -57,7 +65,8 @@ pub async fn serve(pool: PgPool, addr: SocketAddr, mut stop: watch::Receiver<boo
         sqlx::query_as("SELECT id, name, rpc_url FROM networks").fetch_all(&pool).await?;
     let mut networks = HashMap::new();
     for (id, name, url) in rows {
-        let n = Arc::new(Network { id, rpc: Rpc::new(&url)?, head: AtomicU64::new(0) });
+        let n =
+            Arc::new(Network { id, rpc: Rpc::new(&url)?, head: AtomicU64::new(0), updates: broadcast::channel(256).0 });
         tokio::spawn({
             let n = n.clone();
             async move {
@@ -71,7 +80,9 @@ pub async fn serve(pool: PgPool, addr: SocketAddr, mut stop: watch::Receiver<boo
         });
         networks.insert(name, n);
     }
-    let state = AppState { pool, networks: Arc::new(networks) };
+    let networks = Arc::new(networks);
+    tokio::spawn(relay_updates(pool.clone(), networks.clone()));
+    let state = AppState { pool, networks, stop: stop.clone() };
 
     let app = Router::new()
         .route("/", get(|| async { Redirect::temporary("/docs") }))
@@ -85,6 +96,7 @@ pub async fn serve(pool: PgPool, addr: SocketAddr, mut stop: watch::Receiver<boo
         .route("/v1/{net}/address/{address}/txs", get(address_txs))
         .route("/v1/{net}/address/{address}/transfers", get(address_transfers))
         .route("/v1/{net}/programs/{program}/txs", get(program_txs))
+        .route("/v1/{net}/stream", get(live))
         .layer(CorsLayer::new().allow_origin(Any).allow_methods([Method::GET]))
         .layer(CompressionLayer::new())
         .with_state(state);
@@ -105,6 +117,15 @@ enum ApiError {
     BadRequest(String),
     NotFound(String),
     Internal(anyhow::Error),
+}
+
+impl std::fmt::Display for ApiError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::BadRequest(m) | Self::NotFound(m) => f.write_str(m),
+            Self::Internal(e) => write!(f, "{e:#}"),
+        }
+    }
 }
 
 impl From<sqlx::Error> for ApiError {
@@ -862,6 +883,149 @@ async fn program_txs(
     let (keys, next) = p.finish(rows, |r| format!("{}:{}", r.0, r.1));
     let items = summaries(&st.pool, n.id, &keys, None).await?;
     Ok(cached(FRESH, List { items, next_cursor: next }))
+}
+
+// ---------- live stream ----------
+
+/// One committed head-follower batch, serialized once and shared by every subscriber.
+struct Update {
+    /// `BlockBrief` JSON per block.
+    blocks: Vec<String>,
+    /// `TxSummary` JSON per user transaction, with the transaction's account keys for filtering.
+    txs: Vec<(String, Vec<Vec<u8>>)>,
+}
+
+/// Turns `kelvin_tip` notifications into `Update`s for the matching network. `PgListener`
+/// reconnects on its own; batches committed while it is down are not replayed.
+async fn relay_updates(pool: PgPool, networks: Arc<HashMap<String, Arc<Network>>>) {
+    loop {
+        let mut listener = match PgListener::connect_with(&pool).await {
+            Ok(l) => l,
+            Err(e) => {
+                tracing::warn!("stream listener: {e:#}");
+                tokio::time::sleep(Duration::from_secs(5)).await;
+                continue;
+            }
+        };
+        if let Err(e) = listener.listen(db::TIP_CHANNEL).await {
+            tracing::warn!("stream listener: {e:#}");
+            tokio::time::sleep(Duration::from_secs(5)).await;
+            continue;
+        }
+        loop {
+            let n = match listener.recv().await {
+                Ok(n) => n,
+                Err(e) => {
+                    tracing::warn!("stream listener: {e:#}");
+                    break;
+                }
+            };
+            let parts: Vec<i64> = n.payload().split(':').filter_map(|p| p.parse().ok()).collect();
+            let [net, first, last] = parts[..] else { continue };
+            let Some(network) = networks.values().find(|x| i64::from(x.id) == net) else { continue };
+            if network.updates.receiver_count() == 0 {
+                continue;
+            }
+            match build_update(&pool, network.id, first, last).await {
+                Ok(u) => {
+                    let _ = network.updates.send(Arc::new(u));
+                }
+                Err(e) => tracing::warn!("stream update {first}..{last}: {e:#}"),
+            }
+        }
+    }
+}
+
+async fn build_update(pool: &PgPool, net: i16, first: i64, last: i64) -> Result<Update, ApiError> {
+    let blocks: Vec<(i64, i64, i32, i32)> = sqlx::query_as(
+        "SELECT height, block_time_s, tx_count, sys_tx_count FROM blocks
+         WHERE network = $1 AND height BETWEEN $2 AND $3 ORDER BY height",
+    )
+    .bind(net)
+    .bind(first)
+    .bind(last)
+    .fetch_all(pool)
+    .await?;
+    let accounts: Vec<(i64, i32, Vec<Vec<u8>>)> = sqlx::query_as(
+        "SELECT t.height, t.idx,
+                (SELECT array_agg(a.address) FROM unnest(t.account_keys) AS u(id) JOIN addresses a ON a.id = u.id)
+         FROM txs t WHERE t.network = $1 AND t.height BETWEEN $2 AND $3 ORDER BY t.height, t.idx",
+    )
+    .bind(net)
+    .bind(first)
+    .bind(last)
+    .fetch_all(pool)
+    .await?;
+    let keys: Vec<TxKey> = accounts.iter().map(|a| (a.0, a.1)).collect();
+    let summaries = summaries(pool, net, &keys, None).await?;
+    let mut by_key: HashMap<TxKey, Vec<Vec<u8>>> = accounts.into_iter().map(|(h, i, a)| ((h, i), a)).collect();
+    let txs = summaries
+        .into_iter()
+        .map(|t| {
+            let accts = by_key.remove(&(t.block, t.index)).unwrap_or_default();
+            (serde_json::to_string(&t).expect("serializable"), accts)
+        })
+        .collect();
+    let blocks = blocks
+        .into_iter()
+        .map(|(height, t, tx_count, sys)| {
+            let b = BlockBrief {
+                height,
+                time: iso8601(t),
+                time_ms: t * 1_000,
+                transaction_count: tx_count,
+                system_transaction_count: sys,
+            };
+            serde_json::to_string(&b).expect("serializable")
+        })
+        .collect();
+    Ok(Update { blocks, txs })
+}
+
+#[derive(Deserialize)]
+struct LiveQuery {
+    /// Only transactions involving this address; block events are left out.
+    address: Option<String>,
+}
+
+/// Server-sent events: `block` for each new block and `tx` for each new user transaction, as the
+/// head follower indexes them.
+async fn live(
+    State(st): State<AppState>,
+    Path(net): Path<String>,
+    Query(q): Query<LiveQuery>,
+) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, ApiError> {
+    let n = network(&st, &net)?;
+    let filter: Option<[u8; 32]> = q.address.as_deref().map(|a| parse_key(a, "address")).transpose()?;
+    let rx = n.updates.subscribe();
+    let events = stream::unfold((rx, VecDeque::new()), move |(mut rx, mut pending)| async move {
+        loop {
+            if let Some(ev) = pending.pop_front() {
+                return Some((Ok(ev), (rx, pending)));
+            }
+            match rx.recv().await {
+                Ok(update) => {
+                    if filter.is_none() {
+                        pending.extend(update.blocks.iter().map(|b| Event::default().event("block").data(b.as_str())));
+                    }
+                    let wanted = update.txs.iter().filter(|(_, accts)| match &filter {
+                        Some(f) => accts.iter().any(|a| a.as_slice() == f.as_slice()),
+                        None => true,
+                    });
+                    pending.extend(wanted.map(|(t, _)| Event::default().event("tx").data(t.as_str())));
+                }
+                Err(broadcast::error::RecvError::Lagged(missed)) => {
+                    pending.push_back(Event::default().event("lagged").data(missed.to_string()));
+                }
+                Err(broadcast::error::RecvError::Closed) => return None,
+            }
+        }
+    });
+    let mut stop = st.stop.clone();
+    let events = events.take_until(async move {
+        let _ = stop.wait_for(|s| *s).await;
+    });
+    Ok(Sse::new(events).keep_alive(KeepAlive::new().interval(Duration::from_secs(15))))
 }
 
 #[cfg(test)]
