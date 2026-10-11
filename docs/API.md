@@ -28,6 +28,7 @@ curl "$B/address/$A/txs?limit=100"         # newest 100
 curl "$B/address/$A/txs?limit=100&cursor=31442600:0"   # the next 100
 curl "$B/address/$A/txs?order=asc&limit=10"            # the oldest 10
 curl "$B/address/$A/transfers?limit=50"    # RLO and token movements with direction
+curl -OJ "$B/address/$A/export.csv"       # the whole history as CSV, streamed
 ```
 
 Each transaction summary carries the address's `role` (`signer`, `writable`), the top-level

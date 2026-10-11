@@ -710,6 +710,7 @@ footer.foot .brand svg { width: 20px; height: 20px; }
           <div class="seg" id="tab"><button type="button" data-t="txs" aria-pressed="true">Transactions</button><button type="button" data-t="transfers" aria-pressed="false">Transfers</button></div>
           <div style="display:flex;gap:0.75rem;align-items:center;flex-wrap:wrap">
             <div class="seg" id="order"><button type="button" data-o="desc" aria-pressed="true">Newest</button><button type="button" data-o="asc" aria-pressed="false">Oldest</button></div>
+            <a class="chip" href="${API}/v1/${NET}/address/${a}/export.csv" download title="Every indexed transaction of this address as CSV">Download CSV</a>
             <span class="live off" id="live">Connecting…</span>
           </div>
         </header>

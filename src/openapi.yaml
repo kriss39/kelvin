@@ -236,6 +236,16 @@ paths:
                         checked_at: { type: string, format: date-time }
                         since: { type: string, format: date-time }
                         runs: { type: integer }
+  /v1/{network}/address/{address}/export.csv:
+    get:
+      summary: An address's whole history as CSV
+      description: Streams every indexed transaction (time, signature, block, status, role, action, RLO change, fee, error).
+      parameters:
+        - { $ref: "#/components/parameters/network" }
+        - { $ref: "#/components/parameters/address" }
+        - { $ref: "#/components/parameters/order" }
+      responses:
+        "200": { description: CSV, content: { text/csv: { schema: { type: string } } } }
   /v1/{network}/programs/{program}/txs:
     get:
       summary: Transactions that invoke a program

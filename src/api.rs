@@ -132,6 +132,7 @@ pub async fn serve(pool: PgPool, addr: SocketAddr, mut stop: watch::Receiver<boo
         .route("/v1/{net}/activity", get(activity))
         .route("/v1/{net}/network", get(network_overview))
         .route("/v1/{net}/address/{address}/rex", get(address_rex))
+        .route("/v1/{net}/address/{address}/export.csv", get(address_export))
         .route("/v1/{net}/tx/{signature}/workflow", get(tx_workflow))
         .route("/v1/{net}/address/{address}/activity", get(address_activity))
         .layer(TimeoutLayer::with_status_code(StatusCode::SERVICE_UNAVAILABLE, REQUEST_TIMEOUT))
@@ -1239,6 +1240,121 @@ async fn tx_workflow(State(st): State<AppState>, Path((net, signature)): Path<(S
         30,
         json!({ "signature": signature, "nodes": nodes, "leaves": r["leaves"], "truncated": r["truncated"] }),
     ))
+}
+
+// ---------- CSV export ----------
+
+/// Rows per database round trip while streaming an export.
+const EXPORT_PAGE: i64 = 2_000;
+
+#[derive(Deserialize)]
+struct ExportQuery {
+    order: Option<String>,
+}
+
+fn csv_field(s: &str) -> String {
+    if s.contains([',', '"', '\n']) { format!("\"{}\"", s.replace('"', "\"\"")) } else { s.to_owned() }
+}
+
+/// The address's whole history as CSV, streamed page by page so any size fits in memory.
+async fn address_export(
+    State(st): State<AppState>,
+    Path((net, address)): Path<(String, String)>,
+    Query(q): Query<ExportQuery>,
+) -> Result<Response, ApiError> {
+    let n = network(&st, &net)?;
+    let key: [u8; 32] = parse_key(&address, "address")?;
+    let asc = match q.order.as_deref() {
+        None | Some("desc") => false,
+        Some("asc") => true,
+        Some(o) => return Err(ApiError::BadRequest(format!("order must be asc or desc, not {o:?}"))),
+    };
+    let id = address_id(&st.pool, &key).await?;
+    let header = "time_utc,signature,block,index,status,signer,writable,action,rlo_change_kelvin,fee_kelvin,error\n";
+    let (cmp, dir) = if asc { (">", "ASC") } else { ("<", "DESC") };
+    let start = if asc { (-1i64, -1i32) } else { (i64::MAX, i32::MAX) };
+    let pool = st.pool.clone();
+    let net_id = n.id;
+    let pages = stream::unfold(Some(start), move |after| {
+        let pool = pool.clone();
+        async move {
+            let (Some((h, i)), Some(id)) = (after, id) else { return None };
+            let rows: Result<Vec<(i64, i32, i16)>, _> = sqlx::query_as(&format!(
+                "SELECT height, idx, role FROM tx_accounts
+                 WHERE network = $1 AND address = $2 AND (height, idx) {cmp} ($3, $4)
+                 ORDER BY height {dir}, idx {dir} LIMIT $5"
+            ))
+            .bind(net_id)
+            .bind(id)
+            .bind(h)
+            .bind(i)
+            .bind(EXPORT_PAGE)
+            .fetch_all(&pool)
+            .await;
+            let rows = match rows {
+                Ok(r) if !r.is_empty() => r,
+                Ok(_) => return None,
+                Err(e) => return Some((Err(std::io::Error::other(e)), None)),
+            };
+            let next = (rows.len() as i64 == EXPORT_PAGE).then(|| rows.last().map(|r| (r.0, r.1))).flatten();
+            let keys: Vec<TxKey> = rows.iter().map(|r| (r.0, r.1)).collect();
+            let roles: HashMap<TxKey, i16> = rows.iter().map(|r| ((r.0, r.1), r.2)).collect();
+            let txs = match summaries(&pool, net_id, &keys, Some(id)).await {
+                Ok(t) => t,
+                Err(e) => return Some((Err(std::io::Error::other(e.to_string())), None)),
+            };
+            let me = bs58::encode(key).into_string();
+            let mut out = String::with_capacity(txs.len() * 200);
+            for t in txs {
+                let role = Role::from(roles.get(&(t.block, t.index)).copied().unwrap_or(3));
+                let action = t
+                    .instructions
+                    .iter()
+                    .find(|i| i.program_name != Some("ComputeBudget"))
+                    .or(t.instructions.first())
+                    .map(|i| {
+                        format!("{}:{}", i.program_name.unwrap_or(&i.program), i.kind.as_deref().unwrap_or("call"))
+                    })
+                    .unwrap_or_default();
+                let change: i128 = t
+                    .transfers
+                    .iter()
+                    .filter(|x| x.mint.is_none())
+                    .map(|x| {
+                        let a: i128 = x.amount.parse().unwrap_or(0);
+                        (if x.to == me { a } else { 0 }) - (if x.from == me { a } else { 0 })
+                    })
+                    .sum();
+                let error = t.error.as_ref().map(|e| e.to_string()).unwrap_or_default();
+                out.push_str(&format!(
+                    "{},{},{},{},{},{},{},{},{},{},{}\n",
+                    t.time,
+                    t.signature,
+                    t.block,
+                    t.index,
+                    t.status,
+                    role.signer,
+                    role.writable,
+                    csv_field(&action),
+                    change,
+                    t.fee,
+                    csv_field(&error)
+                ));
+            }
+            Some((Ok(axum::body::Bytes::from(out)), next))
+        }
+    });
+    let body = stream::iter([Ok(axum::body::Bytes::from_static(header.as_bytes()))]).chain(pages);
+    let filename = format!("kelvin-{net}-{address}.csv");
+    Ok((
+        [
+            (header::CONTENT_TYPE, "text/csv; charset=utf-8".to_owned()),
+            (header::CONTENT_DISPOSITION, format!("attachment; filename=\"{filename}\"")),
+            (header::CACHE_CONTROL, "no-store".to_owned()),
+        ],
+        axum::body::Body::from_stream(body),
+    )
+        .into_response())
 }
 
 // ---------- rpc conformance ----------
