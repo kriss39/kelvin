@@ -72,6 +72,8 @@ struct AppState {
     stop: watch::Receiver<bool>,
     limiter: Arc<Limiter>,
     exports: Arc<tokio::sync::Semaphore>,
+    /// `/programs/{id}` results by `network:program`, kept for `PROGRAM_TTL`.
+    programs: Arc<Mutex<HashMap<String, (Instant, Value)>>>,
 }
 
 pub async fn serve(pool: PgPool, addr: SocketAddr, mut stop: watch::Receiver<bool>) -> Result<()> {
@@ -119,6 +121,7 @@ pub async fn serve(pool: PgPool, addr: SocketAddr, mut stop: watch::Receiver<boo
         stop: stop.clone(),
         limiter: Arc::new(Limiter::default()),
         exports: Arc::new(tokio::sync::Semaphore::new(MAX_EXPORTS)),
+        programs: Arc::default(),
     };
 
     let app = Router::new()
@@ -145,6 +148,7 @@ pub async fn serve(pool: PgPool, addr: SocketAddr, mut stop: watch::Receiver<boo
         .route("/v1/{net}/address/{address}", get(address_summary))
         .route("/v1/{net}/address/{address}/txs", get(address_txs))
         .route("/v1/{net}/address/{address}/transfers", get(address_transfers))
+        .route("/v1/{net}/programs/{program}", get(program_summary))
         .route("/v1/{net}/programs/{program}/txs", get(program_txs))
         .route("/v1/{net}/stream", get(live))
         .route("/v1/{net}/rpc-conformance", get(rpc_conformance))
@@ -1450,6 +1454,93 @@ async fn address_export(
         axum::body::Body::from_stream(body),
     )
         .into_response())
+}
+
+// ---------- programs ----------
+
+const PROGRAM_TTL: Duration = Duration::from_secs(60);
+
+/// A program over the latest ~25,000 blocks (about an hour): calls, outcome, callers and the
+/// instruction kinds used, plus when it was first and last called. Cached for a minute.
+async fn program_summary(State(st): State<AppState>, Path((net, program)): Path<(String, String)>) -> ApiResult {
+    let n = network(&st, &net)?;
+    let key: [u8; 32] = parse_key(&program, "program")?;
+    let cache_key = format!("{net}:{program}");
+    if let Some((at, v)) = st.programs.lock().expect("not poisoned").get(&cache_key)
+        && at.elapsed() < PROGRAM_TTL
+    {
+        return Ok(cached(60, v.clone()));
+    }
+    let Some(id) = address_id(&st.pool, &key).await? else {
+        return Err(ApiError::NotFound(format!("program {program} has not been called in the indexed blocks")));
+    };
+    let tip: (Option<i64>,) = sqlx::query_as("SELECT tip_next FROM ingest_state WHERE network = $1")
+        .bind(n.id)
+        .fetch_optional(&st.pool)
+        .await?
+        .unwrap_or((None,));
+    let from = tip.0.unwrap_or(0) - ACTIVITY_BLOCKS;
+    let edges: Vec<(i64, i64)> = sqlx::query_as(
+        "(SELECT i.height, b.block_time_s FROM instructions i JOIN blocks b ON b.network = i.network AND b.height = i.height
+          WHERE i.network = $1 AND i.program = $2 ORDER BY i.height ASC LIMIT 1)
+         UNION ALL
+         (SELECT i.height, b.block_time_s FROM instructions i JOIN blocks b ON b.network = i.network AND b.height = i.height
+          WHERE i.network = $1 AND i.program = $2 ORDER BY i.height DESC LIMIT 1)",
+    )
+    .bind(n.id)
+    .bind(id)
+    .fetch_all(&st.pool)
+    .await?;
+    let (calls, txs, failed, callers): (i64, i64, i64, i64) = sqlx::query_as(
+        "SELECT count(*), count(DISTINCT (i.height, i.idx)),
+                count(DISTINCT (i.height, i.idx)) FILTER (WHERE t.err IS NOT NULL), count(DISTINCT t.fee_payer)
+         FROM instructions i JOIN txs t ON t.network = i.network AND t.height = i.height AND t.idx = i.idx
+         WHERE i.network = $1 AND i.program = $2 AND i.height >= $3",
+    )
+    .bind(n.id)
+    .bind(id)
+    .bind(from)
+    .fetch_one(&st.pool)
+    .await?;
+    let kinds: Vec<(Option<String>, i64)> = sqlx::query_as(
+        "SELECT kind, count(*) FROM instructions WHERE network = $1 AND program = $2 AND height >= $3
+         GROUP BY kind ORDER BY 2 DESC LIMIT 12",
+    )
+    .bind(n.id)
+    .bind(id)
+    .bind(from)
+    .fetch_all(&st.pool)
+    .await?;
+    let top: Vec<(Vec<u8>, i64)> = sqlx::query_as(
+        "SELECT a.address, count(DISTINCT (i.height, i.idx)) FROM instructions i
+         JOIN txs t ON t.network = i.network AND t.height = i.height AND t.idx = i.idx
+         JOIN addresses a ON a.id = t.fee_payer
+         WHERE i.network = $1 AND i.program = $2 AND i.height >= $3
+         GROUP BY a.address ORDER BY 2 DESC LIMIT 8",
+    )
+    .bind(n.id)
+    .bind(id)
+    .bind(from)
+    .fetch_all(&st.pool)
+    .await?;
+    let seen = |(h, t): &(i64, i64)| json!({ "block": h, "time": iso8601(*t) });
+    let v = json!({
+        "program": program,
+        "program_name": decode::label(&program),
+        "first_seen": edges.first().map(seen),
+        "last_seen": edges.get(1).map(seen),
+        "last_hour": {
+            "from_block": from,
+            "instructions": calls,
+            "transactions": txs,
+            "failed": failed,
+            "callers": callers,
+            "kinds": kinds.into_iter().map(|(k, c)| json!({ "kind": k, "instructions": c })).collect::<Vec<_>>(),
+            "top_callers": top.into_iter().map(|(a, c)| json!({ "address": b58(&a), "transactions": c })).collect::<Vec<_>>(),
+        },
+    });
+    st.programs.lock().expect("not poisoned").insert(cache_key, (Instant::now(), v.clone()));
+    Ok(cached(60, v))
 }
 
 // ---------- rpc conformance ----------

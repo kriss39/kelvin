@@ -633,7 +633,7 @@ footer.foot .brand svg { width: 20px; height: 20px; }
     const progs = a.programs.filter((p) => p.program_name !== "ComputeBudget");
     const total = progs.reduce((s, p) => s + p.transactions, 0) || 1;
     const top = progs.slice(0, 7), rest = progs.slice(7).reduce((s, p) => s + p.transactions, 0);
-    const items = top.map((p) => ({ cls: family(p), name: p.program_name || short(p.program, 4, 4), href: `#/address/${p.program}`, n: p.transactions }));
+    const items = top.map((p) => ({ cls: family(p), name: p.program_name || short(p.program, 4, 4), href: `#/program/${p.program}`, n: p.transactions }));
     if (rest) items.push({ cls: "p-other", name: "Other programs", n: rest });
     document.getElementById("mix").innerHTML = items.map((i) => `<i class="${i.cls}" style="width:${(i.n / total) * 100}%" title="${esc(i.name)}: ${fmt(i.n)}"></i>`).join("");
     document.getElementById("mixlist").innerHTML = items.map((i) => `<li class="${i.cls}"><span class="sw"></span><span>${i.href ? `<a href="${i.href}">${esc(i.name)}</a>` : esc(i.name)}</span><span class="n">${fmt(i.n)} · ${((i.n / total) * 100).toFixed(0)}%</span></li>`).join("");
@@ -846,7 +846,7 @@ footer.foot .brand svg { width: 20px; height: 20px; }
       : `<div class="empty">No RLO or tokens moved.</div>`;
     const ixs = t.instructions.map((i) => `
       <div class="ix ${family(i)} ${i.inner_index != null ? "inner" : ""}" style="box-shadow: inset 3px 0 0 var(--pc)">
-        <div class="top"><span class="mono muted">#${i.index}${i.inner_index != null ? "." + i.inner_index : ""}</span><b>${esc(i.kind ? human(i.kind) : "Not decoded")}</b><span class="tag ${family(i)}">${esc(i.program_name || "Program")}</span>${addr(i.program, short(i.program, 4, 4))}</div>
+        <div class="top"><span class="mono muted">#${i.index}${i.inner_index != null ? "." + i.inner_index : ""}</span><b>${esc(i.kind ? human(i.kind) : "Not decoded")}</b><span class="tag ${family(i)}">${esc(i.program_name || "Program")}</span>${programLink(i.program)}</div>
         ${i.accounts.length ? `<div class="note">Accounts: ${i.accounts.map((x) => addr(x, short(x, 4, 4))).join(", ")}</div>` : ""}
         ${i.data ? `<details><summary>Raw data · ${i.data.length} base58 characters</summary><div class="mono" style="overflow-wrap:anywhere;margin-top:0.3rem">${esc(i.data)}</div></details>` : ""}
       </div>`).join("");
@@ -937,6 +937,54 @@ footer.foot .brand svg { width: 20px; height: 20px; }
         <tbody>${rows || `<tr><td colspan="4" class="empty">Only system transactions in this block.</td></tr>`}</tbody></table></div></section>`;
   }
 
+  // ---------- program ----------
+  const programLink = (id, label) => `<a class="mono" href="#/program/${esc(id)}" title="${esc(id)}">${esc(label || short(id, 4, 4))}</a>`;
+
+  async function programPage(id) {
+    view.innerHTML = `<div class="note">Loading program…</div>`;
+    let p;
+    try { p = await api(`/programs/${id}`); } catch (e) { return showError(e); }
+    const h = p.last_hour, fam = family({ program_name: p.program_name });
+    const ok = h.transactions ? ((h.transactions - h.failed) / h.transactions) * 100 : null;
+    const kindTotal = h.kinds.reduce((s, k) => s + k.instructions, 0) || 1;
+    view.innerHTML = `
+      <section class="head">${identicon(id)}<div style="min-width:0"><span class="eyebrow">Program · <span class="tag ${fam}" style="margin:0">${esc(p.program_name || "unlabelled")}</span></span><h1>${esc(p.program_name || short(id, 6, 6))}</h1><div class="id">${esc(id)}${copyBtn(id)}</div></div></section>
+      <section class="card"><div class="kpis">
+        <div style="--rc:var(--pc, var(--t2))" class="${fam}"><span class="k">Transactions, last hour</span><span class="v">${fmt(h.transactions)}</span><span class="s">${fmt(h.instructions)} instructions</span></div>
+        <div style="--rc:${ok == null || ok >= 90 ? "var(--ok)" : "var(--t5)"}"><span class="k">Succeeded</span><span class="v">${ok == null ? "–" : ok.toFixed(1) + "%"}</span><span class="s">${fmt(h.failed)} failed</span></div>
+        <div style="--rc:var(--c-system)"><span class="k">Callers</span><span class="v">${fmt(h.callers)}</span><span class="s">distinct fee payers</span></div>
+        <div style="--rc:var(--t1)"><span class="k">First seen</span><span class="v" style="font-size:1rem">${p.first_seen ? when(p.first_seen.time) : "–"}</span><span class="s">${p.first_seen ? "block " + blockLink(p.first_seen.block) : ""}</span></div>
+        <div style="--rc:var(--t4)"><span class="k">Last seen</span><span class="v" style="font-size:1rem">${p.last_seen ? when(p.last_seen.time) : "–"}</span><span class="s">${p.last_seen ? "block " + blockLink(p.last_seen.block) : ""}</span></div>
+      </div></section>
+      <section class="pair">
+        <div class="card"><header><h2>Instruction kinds</h2><span class="note">last hour</span></header><div class="body">
+          ${h.kinds.length ? `<div class="mix">${h.kinds.map((k, i) => `<i class="${fam}" style="width:${(k.instructions / kindTotal) * 100}%;opacity:${Math.max(0.35, 1 - i * 0.15)}"></i>`).join("")}</div>
+          <ul class="mixlist">${h.kinds.map((k, i) => `<li class="${fam}"><span class="sw" style="opacity:${Math.max(0.35, 1 - i * 0.15)}"></span><span>${esc(k.kind ? human(k.kind) : "Not decoded")}</span><span class="n">${fmt(k.instructions)} · ${((k.instructions / kindTotal) * 100).toFixed(0)}%</span></li>`).join("")}</ul>`
+          : `<div class="note">Not called in the last hour.</div>`}</div></div>
+        <div class="card"><header><h2>Top callers</h2><span class="note">last hour, by transactions</span></header>
+          <ul class="cp">${h.top_callers.length ? h.top_callers.map((c) => `<li>${identicon(c.address)}<span>${addr(c.address)}</span><span class="r">${fmt(c.transactions)}</span></li>`).join("") : `<li class="empty">No callers in the last hour.</li>`}</ul></div>
+      </section>
+      <section class="card"><header><h2>Transactions calling this program</h2><span class="note">newest first</span></header>
+        <div class="tablewrap"><table><thead><tr><th>When</th><th>What</th><th>Transaction</th><th>Block</th><th>Status</th></tr></thead><tbody id="rows"></tbody></table></div>
+        <div class="more"><button class="btn" type="button" id="more">Load more</button></div></section>`;
+    const rows = document.getElementById("rows"), more = document.getElementById("more");
+    let cursor = null;
+    async function load() {
+      more.disabled = true;
+      try {
+        const page = await api(`/programs/${id}/txs?limit=50${cursor ? "&cursor=" + encodeURIComponent(cursor) : ""}`);
+        rows.insertAdjacentHTML("beforeend", page.items.map((t) => `<tr ${clickable(t.signature)}><td class="nowrap"><span data-ms="${t.time_ms}" title="${when(t.time)} UTC">${ago(t.time_ms)}</span></td><td><b>${esc(headline(t))}</b><div>${detailTags(t)}</div></td><td>${txLink(t.signature)}</td><td>${blockLink(t.block)}</td><td>${statusTag(t.status)}</td></tr>`).join(""));
+        if (!rows.children.length) rows.innerHTML = `<tr><td colspan="5" class="empty">No transactions indexed yet.</td></tr>`;
+        cursor = page.next_cursor;
+        more.textContent = cursor ? "Load more" : "Oldest indexed call reached";
+        more.disabled = !cursor;
+      } catch (e) { rows.insertAdjacentHTML("beforeend", `<tr><td colspan="5"><div class="error">${esc(e.message)}</div></td></tr>`); }
+    }
+    more.addEventListener("click", load);
+    load();
+    ticking();
+  }
+
   // ---------- Rialo-native views ----------
   const PROGRAM_NAMES = {
     "11111111111111111111111111111111": "System", "ComputeBudget111111111111111111111111111111": "ComputeBudget",
@@ -944,7 +992,7 @@ footer.foot .brand svg { width: 20px; height: 20px; }
     "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb": "Token2022", "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL": "AssociatedToken",
     "TokenomicsGovernance11111111111111111111111": "TokenomicsGovernance",
   };
-  const programChip = (id) => { const name = PROGRAM_NAMES[id]; return `<span class="tag ${family({ program_name: name })}">${esc(name || short(id, 4, 4))}</span>`; };
+  const programChip = (id) => { const name = PROGRAM_NAMES[id]; return `<a href="#/program/${esc(id)}" class="tag ${family({ program_name: name })}">${esc(name || short(id, 4, 4))}</a>`; };
 
   async function networkPage() {
     view.innerHTML = `<div class="note">Loading network…</div>`;
@@ -1015,6 +1063,7 @@ footer.foot .brand svg { width: 20px; height: 20px; }
     else if (page === "block" && /^\d+$/.test(arg || "")) { q.value = arg; block(arg); }
     else if (page === "rpc") { q.value = ""; rpcPage(); }
     else if (page === "network") { q.value = ""; networkPage(); }
+    else if (page === "program" && arg) { q.value = arg; programPage(arg); }
     else { q.value = ""; home(); }
   }
   window.addEventListener("hashchange", route);

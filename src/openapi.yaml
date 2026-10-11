@@ -246,6 +246,16 @@ paths:
         - { $ref: "#/components/parameters/order" }
       responses:
         "200": { description: CSV, content: { text/csv: { schema: { type: string } } } }
+  /v1/{network}/programs/{program}:
+    get:
+      summary: Program summary
+      description: First and last call, and over the latest ~25,000 blocks (about an hour) - transactions, failures, distinct callers, instruction kinds and top callers. Cached for a minute.
+      parameters:
+        - { $ref: "#/components/parameters/network" }
+        - { name: program, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: Summary, content: { application/json: { schema: { type: object } } } }
+        "404": { $ref: "#/components/responses/NotFound" }
   /v1/{network}/programs/{program}/txs:
     get:
       summary: Transactions that invoke a program
