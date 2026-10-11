@@ -117,6 +117,19 @@ impl Rpc {
         }
     }
 
+    /// Any method, with the result as raw JSON; for checks on the RPC's behaviour.
+    pub async fn raw(&self, method: &str, params: Value) -> Result<Value> {
+        self.call_ok(method, params).await
+    }
+
+    /// Whether a browser on another origin may read responses: the `Access-Control-Allow-Origin`
+    /// header for a request carrying `Origin`, if any.
+    pub async fn cors_allow_origin(&self) -> Result<Option<String>> {
+        let body = json!({ "jsonrpc": "2.0", "id": 1, "method": "getVersion", "params": [] });
+        let resp = self.http.post(&self.url).header("Origin", "https://example.com").json(&body).send().await?;
+        Ok(resp.headers().get("access-control-allow-origin").and_then(|v| v.to_str().ok()).map(str::to_owned))
+    }
+
     /// Native balance in kelvin.
     pub async fn balance(&self, address: &str) -> Result<u64> {
         let r: WithContext<u64> = self.call_ok("getBalance", json!([{ "address": address }])).await?;

@@ -102,6 +102,9 @@ td.amt, th.amt { text-align: right; white-space: nowrap; font-family: var(--mono
 .in { color: var(--ok); }
 .tag { display: inline-block; font-size: 0.72rem; padding: 0.05rem 0.4rem; border-radius: 4px; background: var(--bg); border: 1px solid var(--line); margin: 0 0.25rem 0.2rem 0; white-space: nowrap; }
 .tag.sig { border-color: var(--accent); color: var(--accent); }
+.tag.quirk { border-color: var(--rpc); color: var(--rpc); background: var(--rpc-soft); }
+.tag.fine { border-color: var(--ok); color: var(--ok); }
+td.obs { font-family: var(--mono); font-size: 0.74rem; color: var(--muted); overflow-wrap: anywhere; min-width: 14rem; }
 .ok { color: var(--ok); font-weight: 600; }
 .bad { color: var(--bad); font-weight: 600; }
 .more { display: flex; justify-content: center; padding: 0.75rem; border-top: 1px solid var(--line); }
@@ -246,7 +249,10 @@ footer.foot { max-width: 72rem; margin: 0 auto; padding: 0 1rem 2.5rem; font-siz
       <section class="cols">
         <div class="panel"><header><h2>Latest blocks</h2><span class="live off" id="live1">Connecting…</span></header><ul class="feed" id="blocks"></ul></div>
         <div class="panel"><header><h2>Latest transactions</h2><span class="live off" id="live2">Connecting…</span></header><ul class="feed" id="txs"><li class="empty">Waiting for the next transaction…</li></ul></div>
-      </section>`;
+      </section>
+      <section class="panel"><header><h2>Rialo RPC, checked hourly</h2><span class="note" id="rpcnote"></span></header>
+        <div class="tablewrap"><table><thead><tr><th>Check</th><th>Status</th><th>Observed</th><th>Since</th></tr></thead><tbody id="rpc"><tr><td colspan="4" class="empty">Loading…</td></tr></tbody></table></div></section>`;
+    api("/rpc-conformance").then(renderConformance, (e) => { document.getElementById("rpc").innerHTML = `<tr><td colspan="4" class="empty">${esc(e.message)}</td></tr>`; });
     const refresh = async () => {
       try { renderStatus(await api("/status")); } catch (e) { document.getElementById("readouts").innerHTML = `<div><span class="k">Status</span><span class="s">${esc(e.message)}</span></div>`; }
     };
@@ -284,6 +290,19 @@ footer.foot { max-width: 72rem; margin: 0 auto; padding: 0 1rem 2.5rem; font-siz
     onLeave(() => mo.disconnect());
     const tick = setInterval(() => document.querySelectorAll("[data-ms]").forEach((el) => (el.textContent = ago(+el.dataset.ms))), 1000);
     onLeave(() => clearInterval(tick));
+  }
+
+  function renderConformance(c) {
+    const el = document.getElementById("rpc");
+    if (!el) return;
+    if (!c.checks.length) { el.innerHTML = `<tr><td colspan="4" class="empty">No checks have run yet; the indexer runs them every hour.</td></tr>`; return; }
+    el.innerHTML = c.checks.map((k) => {
+      const chip = k.id === "version" ? `<span class="tag">Info</span>` : k.quirk_present ? `<span class="tag quirk">Quirk present</span>` : `<span class="tag fine">Behaves</span>`;
+      return `<tr><td><b>${esc(k.title)}</b><div class="note">Expected: ${esc(k.expected)}</div></td><td>${chip}</td><td class="obs">${esc(k.observed)}</td><td class="num" style="white-space:nowrap">${when(k.since).replace(" UTC", "")}</td></tr>`;
+    }).join("");
+    const quirks = c.checks.filter((k) => k.quirk_present).length;
+    const last = c.checks.map((k) => k.checked_at).sort().at(-1);
+    document.getElementById("rpcnote").textContent = `${quirks} of ${c.checks.length - 1} quirks present · last checked ${when(last)}`;
   }
 
   function renderStatus(s) {

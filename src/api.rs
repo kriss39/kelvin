@@ -25,6 +25,7 @@ use tokio::sync::{broadcast, watch};
 use tower_http::compression::CompressionLayer;
 use tower_http::cors::{Any, CorsLayer};
 
+use crate::conformance;
 use crate::db;
 use crate::decode;
 use crate::model::Header;
@@ -98,6 +99,7 @@ pub async fn serve(pool: PgPool, addr: SocketAddr, mut stop: watch::Receiver<boo
         .route("/v1/{net}/address/{address}/transfers", get(address_transfers))
         .route("/v1/{net}/programs/{program}/txs", get(program_txs))
         .route("/v1/{net}/stream", get(live))
+        .route("/v1/{net}/rpc-conformance", get(rpc_conformance))
         .layer(CorsLayer::new().allow_origin(Any).allow_methods([Method::GET]))
         .layer(CompressionLayer::new())
         .with_state(state);
@@ -884,6 +886,50 @@ async fn program_txs(
     let (keys, next) = p.finish(rows, |r| format!("{}:{}", r.0, r.1));
     let items = summaries(&st.pool, n.id, &keys, None).await?;
     Ok(cached(FRESH, List { items, next_cursor: next }))
+}
+
+// ---------- rpc conformance ----------
+
+/// Latest result of each RPC check, with since when it has held and how often it ran.
+async fn rpc_conformance(State(st): State<AppState>, Path(net): Path<String>) -> ApiResult {
+    let n = network(&st, &net)?;
+    type Row = (String, bool, String, String, String, i64);
+    let rows: Vec<Row> = sqlx::query_as(
+        r#"WITH latest AS (
+               SELECT DISTINCT ON (check_id) check_id, issue, observed, ts FROM rpc_conformance
+               WHERE network = $1 ORDER BY check_id, ts DESC)
+           SELECT l.check_id, l.issue, l.observed,
+                  to_char(l.ts AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
+                  to_char((SELECT min(c.ts) FROM rpc_conformance c
+                           WHERE c.network = $1 AND c.check_id = l.check_id
+                             AND c.ts > coalesce((SELECT max(d.ts) FROM rpc_conformance d
+                                                  WHERE d.network = $1 AND d.check_id = l.check_id
+                                                    AND d.issue <> l.issue), '-infinity'))
+                          AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
+                  (SELECT count(*) FROM rpc_conformance c WHERE c.network = $1 AND c.check_id = l.check_id)
+           FROM latest l"#,
+    )
+    .bind(n.id)
+    .fetch_all(&st.pool)
+    .await?;
+    let by_id: HashMap<&str, &Row> = rows.iter().map(|r| (r.0.as_str(), r)).collect();
+    let checks: Vec<Value> = conformance::CHECKS
+        .iter()
+        .filter_map(|c| {
+            let (_, issue, observed, checked_at, since, runs) = by_id.get(c.id)?;
+            Some(json!({
+                "id": c.id,
+                "title": c.title,
+                "expected": c.expected,
+                "quirk_present": issue,
+                "observed": observed,
+                "checked_at": checked_at,
+                "since": since,
+                "runs": runs,
+            }))
+        })
+        .collect();
+    Ok(cached(60, json!({ "network": net, "checks": checks })))
 }
 
 // ---------- live stream ----------

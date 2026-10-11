@@ -83,6 +83,7 @@ All paths are under `/v1/{network}`, where `network` is `testnet` or `devnet`.
 | `GET /blocks`, `GET /blocks/{height}` | Indexed blocks, and one block with its transactions |
 | `GET /programs/{program}/txs` | Transactions that invoke a program |
 | `GET /stream[?address=]` | Server-sent events for new blocks and transactions as they are indexed |
+| `GET /rpc-conformance` | The RPC's known shortcomings, re-checked every hour |
 
 Lists take `limit` (1–100, default 25) and return `next_cursor`; pass it back as `cursor`.
 Amounts are strings in kelvin. The full spec is in [`src/openapi.yaml`](src/openapi.yaml).

@@ -9,6 +9,7 @@ use anyhow::{Context, Result};
 use sqlx::PgPool;
 use tokio::sync::watch;
 
+use crate::conformance;
 use crate::db::{self, Cursor};
 use crate::ingest::{self, Options, Until};
 use crate::normalize;
@@ -20,6 +21,7 @@ const FOLLOW_LAG: u64 = 2;
 const RETRY_AFTER: Duration = Duration::from_secs(30);
 const RETENTION_SAMPLE_EVERY: Duration = Duration::from_secs(3600);
 const RESET_CHECK_EVERY: Duration = Duration::from_secs(600);
+const CONFORMANCE_EVERY: Duration = Duration::from_secs(3600);
 /// The reset check compares the stored block this far below the follower's cursor with the RPC.
 const RESET_CHECK_DEPTH: u64 = 1_000;
 
@@ -54,7 +56,7 @@ pub async fn run(pool: &PgPool, net: i16, rpc: &Rpc, cfg: &Config, stop: watch::
         db::skip_pruned(pool, net, c.backfill_next, oldest - 1).await?;
     }
 
-    spawn_every(RETENTION_SAMPLE_EVERY, "retention sample", {
+    spawn_every(RETENTION_SAMPLE_EVERY, RETENTION_SAMPLE_EVERY, "retention sample", {
         let (pool, rpc) = (pool.clone(), rpc.clone());
         move || {
             let (pool, rpc) = (pool.clone(), rpc.clone());
@@ -67,7 +69,19 @@ pub async fn run(pool: &PgPool, net: i16, rpc: &Rpc, cfg: &Config, stop: watch::
             }
         }
     });
-    spawn_every(RESET_CHECK_EVERY, "reset check", {
+    spawn_every(Duration::from_secs(120), CONFORMANCE_EVERY, "rpc conformance", {
+        let (pool, rpc) = (pool.clone(), rpc.clone());
+        move || {
+            let (pool, rpc) = (pool.clone(), rpc.clone());
+            async move {
+                let results = conformance::run(&pool, net, &rpc).await?;
+                let quirks = results.iter().filter(|r| r.1).count();
+                tracing::info!(checks = results.len(), quirks, "rpc conformance");
+                Ok(())
+            }
+        }
+    });
+    spawn_every(RESET_CHECK_EVERY, RESET_CHECK_EVERY, "reset check", {
         let (pool, rpc) = (pool.clone(), rpc.clone());
         move || {
             let (pool, rpc) = (pool.clone(), rpc.clone());
@@ -166,17 +180,18 @@ where
 }
 
 /// Runs `job` every `period` in the background, logging failures; it lives as long as the process.
-fn spawn_every<F, Fut>(period: Duration, name: &'static str, mut job: F)
+fn spawn_every<F, Fut>(first_after: Duration, period: Duration, name: &'static str, mut job: F)
 where
     F: FnMut() -> Fut + Send + 'static,
     Fut: Future<Output = Result<()>> + Send,
 {
     tokio::spawn(async move {
+        tokio::time::sleep(first_after).await;
         loop {
-            tokio::time::sleep(period).await;
             if let Err(e) = job().await {
                 tracing::warn!("{name} failed: {e:#}");
             }
+            tokio::time::sleep(period).await;
         }
     });
 }

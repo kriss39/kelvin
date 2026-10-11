@@ -1,6 +1,7 @@
 //! Kelvin: indexer and history API for Rialo.
 
 mod api;
+mod conformance;
 mod db;
 mod decode;
 mod indexer;
@@ -82,6 +83,11 @@ enum Cmd {
     },
     /// Row counts and on-disk size per table.
     Sizes,
+    /// Run the RPC conformance checks once and print the results (the indexer runs them hourly).
+    Conformance {
+        #[arg(long, default_value = "testnet")]
+        network: String,
+    },
     /// Decode stored instructions that have no kind yet, after a decoder was added.
     Redecode {
         #[arg(long, default_value = "testnet")]
@@ -140,6 +146,13 @@ async fn main() -> Result<()> {
         }
         Cmd::Status { network } => status(&pool, &network).await,
         Cmd::Sizes => print_sizes(&pool).await,
+        Cmd::Conformance { network } => {
+            let (net, url) = db::network(&pool, &network).await?;
+            for (id, issue, observed) in conformance::run(&pool, net, &Rpc::new(&url)?).await? {
+                println!("{:<28} {:<7} {observed}", id, if issue { "QUIRK" } else { "ok" });
+            }
+            Ok(())
+        }
         Cmd::Redecode { network } => {
             let (net, _) = db::network(&pool, &network).await?;
             let o = redecode::run(&pool, net).await?;

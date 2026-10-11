@@ -159,6 +159,36 @@ paths:
           content:
             text/event-stream:
               schema: { type: string }
+  /v1/{network}/rpc-conformance:
+    get:
+      summary: How the Rialo RPC behaves, checked hourly
+      description: |
+        Each check probes a known RPC shortcoming (address history capped at 20, `limit` and `before`
+        ignored, `block_time: null`, mixed time units, missing balance changes, pruning, CORS, ...).
+        `quirk_present` is the latest result, `since` when it last changed.
+      parameters: [{ $ref: "#/components/parameters/network" }]
+      responses:
+        "200":
+          description: Latest result per check
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  network: { type: string }
+                  checks:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: { type: string }
+                        title: { type: string }
+                        expected: { type: string }
+                        quirk_present: { type: boolean }
+                        observed: { type: string }
+                        checked_at: { type: string, format: date-time }
+                        since: { type: string, format: date-time }
+                        runs: { type: integer }
   /v1/{network}/programs/{program}/txs:
     get:
       summary: Transactions that invoke a program
