@@ -2,7 +2,7 @@
 /**
  * MCP server over stdio that gives AI agents Rialo history through a Kelvin API.
  *
- *   KELVIN_API      Kelvin server, default http://127.0.0.1:8080
+ *   KELVIN_API      Kelvin server, default https://kelvinscan.pages.dev
  *   KELVIN_NETWORK  testnet (default) or devnet
  */
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -11,7 +11,7 @@ import { Kelvin, type Network } from "kelvin-rialo";
 import { z } from "zod";
 
 const kelvin = new Kelvin({
-  baseUrl: process.env.KELVIN_API ?? "http://127.0.0.1:8080",
+  baseUrl: process.env.KELVIN_API ?? "https://kelvinscan.pages.dev",
   network: (process.env.KELVIN_NETWORK as Network | undefined) ?? "testnet",
 });
 

@@ -1,7 +1,7 @@
 # kelvin-rialo-mcp
 
 An [MCP](https://modelcontextprotocol.io) server that lets AI agents read Rialo history through a
-[Kelvin](../../README.md) API. All tools are read-only.
+[Kelvin](https://kelvinscan.pages.dev) API. All tools are read-only.
 
 | Tool | Answers |
 |---|---|
@@ -16,32 +16,32 @@ An [MCP](https://modelcontextprotocol.io) server that lets AI agents read Rialo 
 
 ## Use
 
-```sh
-cd sdk/typescript && npm install && npm run build
-cd ../mcp && npm install && npm run build
-```
+It talks to the public Kelvin at https://kelvinscan.pages.dev unless `KELVIN_API` says otherwise.
 
 Claude Code:
 
 ```sh
-claude mcp add kelvin -e KELVIN_API=https://<kelvin-host> -- node /path/to/kelvin/sdk/mcp/dist/index.js
+claude mcp add kelvin -- npx -y kelvin-rialo-mcp
 ```
 
-Claude Desktop (`claude_desktop_config.json`):
+Claude Desktop (`claude_desktop_config.json`), or any MCP client that starts stdio servers:
 
 ```json
 {
   "mcpServers": {
     "kelvin": {
-      "command": "node",
-      "args": ["/path/to/kelvin/sdk/mcp/dist/index.js"],
-      "env": { "KELVIN_API": "https://<kelvin-host>", "KELVIN_NETWORK": "testnet" }
+      "command": "npx",
+      "args": ["-y", "kelvin-rialo-mcp"],
+      "env": { "KELVIN_NETWORK": "testnet" }
     }
   }
 }
 ```
 
+Set `KELVIN_API` to use your own Kelvin server.
+
 Then ask, for example: *"How many transactions has t2J87f5HDtd4UkpszzBCm6nfbRgkJHRrbJtxuWpwVAG made,
 and what did it do first?"*
 
-`npm test` starts the server with the MCP client SDK and calls its tools against `KELVIN_API`.
+From a checkout, `npm test` starts the server with the MCP client SDK and calls its tools against
+`KELVIN_API`.

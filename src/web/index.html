@@ -429,7 +429,9 @@ footer.foot .brand svg { width: 20px; height: 20px; }
   }
 
   async function api(path) {
-    const r = await fetch(`${API}/v1/${NET}${path}`);
+    let r;
+    try { r = await fetch(`${API}/v1/${NET}${path}`); }
+    catch (e) { throw new Error("Can't reach the Kelvin server right now; retrying automatically."); }
     let body = null;
     try { body = await r.json(); } catch (e) {}
     if (!r.ok) throw new Error((body && body.error) || `${r.status} ${r.statusText}`);

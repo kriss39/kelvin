@@ -6,14 +6,41 @@
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
-  "exports": { ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" } },
-  "files": ["dist", "README.md"],
-  "engines": { "node": ">=18" },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "build": "tsc -p .",
-    "test": "npm run build && node --test test/*.test.mjs"
+    "test": "npm run build && node --test test/*.test.mjs",
+    "prepublishOnly": "npm run build"
   },
   "devDependencies": {
     "typescript": "5.9.3"
-  }
+  },
+  "author": "Kanan",
+  "homepage": "https://kelvinscan.pages.dev",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kriss39/kelvin.git",
+    "directory": "sdk/typescript"
+  },
+  "keywords": [
+    "rialo",
+    "blockchain",
+    "indexer",
+    "explorer",
+    "transaction-history",
+    "sdk"
+  ]
 }

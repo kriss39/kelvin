@@ -70,9 +70,22 @@ struct AppState {
     networks: Arc<HashMap<String, Arc<Network>>>,
     /// Ends open streams on shutdown; graceful shutdown would otherwise wait on them forever.
     stop: watch::Receiver<bool>,
+    limiter: Arc<Limiter>,
+    exports: Arc<tokio::sync::Semaphore>,
 }
 
 pub async fn serve(pool: PgPool, addr: SocketAddr, mut stop: watch::Receiver<bool>) -> Result<()> {
+    // A pool of its own, so slow API queries are cut off without touching the indexer's writes.
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(16)
+        .after_connect(|conn, _| {
+            Box::pin(async move {
+                sqlx::query(&format!("SET statement_timeout = '{STATEMENT_TIMEOUT}'")).execute(&mut *conn).await?;
+                Ok(())
+            })
+        })
+        .connect_with((*pool.connect_options()).clone())
+        .await?;
     let rows: Vec<(i16, String, String)> =
         sqlx::query_as("SELECT id, name, rpc_url FROM networks").fetch_all(&pool).await?;
     let mut networks = HashMap::new();
@@ -100,7 +113,13 @@ pub async fn serve(pool: PgPool, addr: SocketAddr, mut stop: watch::Receiver<boo
     }
     let networks = Arc::new(networks);
     tokio::spawn(relay_updates(pool.clone(), networks.clone()));
-    let state = AppState { pool, networks, stop: stop.clone() };
+    let state = AppState {
+        pool,
+        networks,
+        stop: stop.clone(),
+        limiter: Arc::new(Limiter::default()),
+        exports: Arc::new(tokio::sync::Semaphore::new(MAX_EXPORTS)),
+    };
 
     let app = Router::new()
         .route("/", get(explorer))
@@ -135,6 +154,7 @@ pub async fn serve(pool: PgPool, addr: SocketAddr, mut stop: watch::Receiver<boo
         .route("/v1/{net}/address/{address}/export.csv", get(address_export))
         .route("/v1/{net}/tx/{signature}/workflow", get(tx_workflow))
         .route("/v1/{net}/address/{address}/activity", get(address_activity))
+        .layer(axum::middleware::from_fn_with_state(state.clone(), rate_limit))
         .layer(TimeoutLayer::with_status_code(StatusCode::SERVICE_UNAVAILABLE, REQUEST_TIMEOUT))
         .layer(CorsLayer::new().allow_origin(Any).allow_methods([Method::GET]))
         .layer(CompressionLayer::new())
@@ -142,12 +162,75 @@ pub async fn serve(pool: PgPool, addr: SocketAddr, mut stop: watch::Receiver<boo
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
     tracing::info!(%addr, "API listening");
-    axum::serve(listener, app)
+    axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>())
         .with_graceful_shutdown(async move {
             let _ = stop.wait_for(|s| *s).await;
         })
         .await?;
     Ok(())
+}
+
+// ---------- abuse protection ----------
+
+/// Sustained requests per second per client, and how many may come at once.
+const RATE_PER_SEC: f64 = 10.0;
+const RATE_BURST: f64 = 40.0;
+/// Database statements an API request may run for.
+const STATEMENT_TIMEOUT: &str = "15s";
+/// CSV exports that may stream at the same time.
+const MAX_EXPORTS: usize = 3;
+
+/// Token buckets per client address.
+#[derive(Default)]
+struct Limiter {
+    buckets: Mutex<HashMap<String, (f64, Instant)>>,
+}
+
+impl Limiter {
+    fn allow(&self, client: &str) -> bool {
+        let mut b = self.buckets.lock().expect("not poisoned");
+        let now = Instant::now();
+        if b.len() > 50_000 {
+            b.retain(|_, (_, t)| now.duration_since(*t) < Duration::from_secs(600));
+        }
+        let (tokens, last) = b.entry(client.to_owned()).or_insert((RATE_BURST, now));
+        *tokens = (*tokens + now.duration_since(*last).as_secs_f64() * RATE_PER_SEC).min(RATE_BURST);
+        *last = now;
+        if *tokens >= 1.0 {
+            *tokens -= 1.0;
+            true
+        } else {
+            false
+        }
+    }
+}
+
+/// The visitor's address: set by the Pages front (`x-kelvin-client-ip`), by Cloudflare
+/// (`cf-connecting-ip`), or the TCP peer for direct connections.
+fn client_ip(headers: &axum::http::HeaderMap, peer: SocketAddr) -> String {
+    ["x-kelvin-client-ip", "cf-connecting-ip"]
+        .iter()
+        .find_map(|h| headers.get(*h).and_then(|v| v.to_str().ok()).map(str::to_owned))
+        .unwrap_or_else(|| peer.ip().to_string())
+}
+
+async fn rate_limit(
+    State(st): State<AppState>,
+    axum::extract::ConnectInfo(peer): axum::extract::ConnectInfo<SocketAddr>,
+    req: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> Response {
+    let client = client_ip(req.headers(), peer);
+    if st.limiter.allow(&client) {
+        return next.run(req).await;
+    }
+    let mut r = (
+        StatusCode::TOO_MANY_REQUESTS,
+        Json(json!({ "error": format!("too many requests; the limit is {RATE_PER_SEC} per second") })),
+    )
+        .into_response();
+    r.headers_mut().insert(header::RETRY_AFTER, HeaderValue::from_static("1"));
+    r
 }
 
 // ---------- errors and responses ----------
@@ -157,13 +240,15 @@ enum ApiError {
     NotFound(String),
     /// The Rialo RPC failed while answering a request that is passed through to it.
     Upstream(String),
+    /// A limited resource (e.g. concurrent exports) is in use; retry later.
+    Busy(String),
     Internal(anyhow::Error),
 }
 
 impl std::fmt::Display for ApiError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::BadRequest(m) | Self::NotFound(m) | Self::Upstream(m) => f.write_str(m),
+            Self::BadRequest(m) | Self::NotFound(m) | Self::Upstream(m) | Self::Busy(m) => f.write_str(m),
             Self::Internal(e) => write!(f, "{e:#}"),
         }
     }
@@ -187,6 +272,7 @@ impl IntoResponse for ApiError {
             Self::BadRequest(m) => (StatusCode::BAD_REQUEST, m),
             Self::NotFound(m) => (StatusCode::NOT_FOUND, m),
             Self::Upstream(m) => (StatusCode::BAD_GATEWAY, m),
+            Self::Busy(m) => (StatusCode::SERVICE_UNAVAILABLE, m),
             Self::Internal(e) => {
                 tracing::error!("api: {e:#}");
                 (StatusCode::INTERNAL_SERVER_ERROR, "internal error".to_owned())
@@ -1269,6 +1355,11 @@ async fn address_export(
         Some("asc") => true,
         Some(o) => return Err(ApiError::BadRequest(format!("order must be asc or desc, not {o:?}"))),
     };
+    let permit = st
+        .exports
+        .clone()
+        .try_acquire_owned()
+        .map_err(|_| ApiError::Busy(format!("{MAX_EXPORTS} exports are already running; try again in a minute")))?;
     let id = address_id(&st.pool, &key).await?;
     let header = "time_utc,signature,block,index,status,signer,writable,action,rlo_change_kelvin,fee_kelvin,error\n";
     let (cmp, dir) = if asc { (">", "ASC") } else { ("<", "DESC") };
@@ -1344,7 +1435,11 @@ async fn address_export(
             Some((Ok(axum::body::Bytes::from(out)), next))
         }
     });
-    let body = stream::iter([Ok(axum::body::Bytes::from_static(header.as_bytes()))]).chain(pages);
+    // The permit is released when the stream ends or the client goes away.
+    let body = stream::iter([Ok(axum::body::Bytes::from_static(header.as_bytes()))]).chain(pages).map(move |chunk| {
+        let _held = &permit;
+        chunk
+    });
     let filename = format!("kelvin-{net}-{address}.csv");
     Ok((
         [

@@ -16,6 +16,7 @@ except `/stream`. Any origin may call the API from a browser.
 | Paging | Lists return `{ "items": [...], "next_cursor": "…" }`. Pass `next_cursor` back as `cursor` to continue; `null` means the end. `limit` is 1–100 (default 25), `order` is `desc` (newest first, default) or `asc`. |
 | Errors | `{ "error": "…" }` with 400 for a malformed parameter, 404 for something not in the index (the message says whether a block was pruned before Kelvin started, could not be fetched, or is not indexed yet), 503 for a timeout. |
 | Caching | Blocks and transactions are final: `Cache-Control: public, max-age=86400`. Lists and status: `max-age=5`. |
+| Limits | 10 requests per second per client with bursts of 40, then 429 with `Retry-After`. Queries stop after 15 s. At most 3 CSV exports run at once (503 otherwise). |
 
 ## Full history of an address
 

@@ -1,12 +1,16 @@
 # kelvin-rialo
 
-TypeScript client for the [Kelvin](../../README.md) API: full, pageable Rialo history, decoded
+TypeScript client for the [Kelvin](https://kelvinscan.pages.dev) API: full, pageable Rialo history, decoded
 transactions and live updates. No dependencies; browsers and Node 18+.
+
+```sh
+npm install kelvin-rialo
+```
 
 ```ts
 import { Kelvin, formatRlo } from "kelvin-rialo";
 
-const kelvin = new Kelvin({ baseUrl: "https://<kelvin-host>", network: "testnet" });
+const kelvin = new Kelvin({ baseUrl: "https://kelvinscan.pages.dev", network: "testnet" });
 
 // Every transaction of an address; pages are fetched as you iterate.
 for await (const tx of kelvin.address("t2J87f5HDtd4UkpszzBCm6nfbRgkJHRrbJtxuWpwVAG").history({ order: "asc" })) {
@@ -33,6 +37,8 @@ Also: `status()`, `activity()` (the last hour), `network()` (validators, DKG com
 
 Amounts are decimal strings in kelvin (1 RLO = 10⁹ kelvin); `formatRlo` converts exactly.
 Errors are `KelvinError` with the HTTP `status`.
+
+From a checkout:
 
 ```sh
 npm install && npm test          # tests run against KELVIN_API (default http://127.0.0.1:8080)

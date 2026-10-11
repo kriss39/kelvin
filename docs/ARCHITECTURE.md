@@ -157,7 +157,11 @@ on each other in a cycle.
   transaction summaries with their account keys) and fans it out to `/stream` subscribers over a
   broadcast channel, filtering by address per subscriber. Because the notification goes through
   Postgres, the API can run in a different process from the indexer.
-- **Timeouts.** Requests that take longer than 20 s get 503; streams are unaffected once open.
+- **Timeouts and limits.** Requests that take longer than 20 s get 503; streams are unaffected
+  once open. The API has its own connection pool with a 15 s statement timeout, so slow queries
+  never hold up the indexer. Each client gets a token bucket (10 requests per second, bursts of
+  40), keyed on the address the Pages front forwards, Cloudflare's `cf-connecting-ip` or the TCP
+  peer. At most 3 CSV exports stream at once.
 
 The explorer (`src/web/index.html`) is a single static page compiled into the binary and served
 at `/`. It only uses the public API.
