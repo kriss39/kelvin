@@ -61,18 +61,48 @@ KELVIN_TEST_DATABASE_URL=postgres://kelvin:kelvin@127.0.0.1:54329/kelvin_test ca
 The second form adds the end-to-end API test. It drops and recreates the schema of the database
 it is given, so never point it at the indexer's database.
 
-## Deploying (Oracle Cloud Always Free)
+## Deploying
 
-The target is an Ampere A1 machine (arm64) running Ubuntu 24.04 with a 150 GB boot volume.
+Any Ubuntu 24.04 arm64 machine reachable over SSH works. `deploy/deploy.sh`
+builds the arm64 image locally, copies it with `deploy/compose.yaml` and a settings profile from
+`deploy/env/` over SSH, installs Docker if needed and starts the stack.
 
-1. **Get the machine.** Ampere capacity is often exhausted. `deploy/oci-launch.sh` keeps trying
-   to create an instance named `kelvin` (2 OCPU / 12 GB, then 1 OCPU / 6 GB) every minute until
-   it succeeds, using `~/.oci/config` and the subnet `kelvin-public`. It never creates a second
-   instance.
-2. **Ship it.** `deploy/deploy.sh ubuntu@<ip> --restore` builds the arm64 image locally, copies
-   it and `deploy/compose.yaml` over SSH, installs Docker if needed, loads this machine's
-   database into the server (first time only) and starts the stack. It prints the public URL.
-3. **Later releases.** `deploy/deploy.sh ubuntu@<ip>` without `--restore`.
+```sh
+deploy/deploy.sh user@<ip> --restore     # first time: also loads this machine's database
+deploy/deploy.sh user@<ip>               # later releases
+```
+
+`SSH_KEY` picks the key and `PROFILE` the settings: `a1` (default) for 12 GB machines, `small` for
+1 GB machines with swap. After the first deploy, point the public site at the server's tunnel
+with `deploy/pages/deploy.sh <tunnel-url>` (see Running locally).
+
+### Azure (current)
+
+The public instance runs on an Azure free account: a `Standard_B2pts_v2` (2 vCPU arm64, 1 GB)
+in `northcentralus`, close to the Rialo RPC, with two 64 GB Premium SSD (P6) disks, one mounted at
+`/srv/kelvin` for Postgres, and 4 GB of swap. Its network security group allows SSH from the
+operator's address only; nothing else is exposed, since the tunnel connects outwards.
+
+```sh
+az vm create -g kelvin -n kelvin -l northcentralus --size Standard_B2pts_v2 \
+  --image Canonical:ubuntu-24_04-lts:server-arm64:latest --admin-username kelvin \
+  --ssh-key-values ~/.ssh/kelvin_azure_ed25519.pub --os-disk-size-gb 64 --storage-sku Premium_LRS \
+  --data-disk-sizes-gb 64 --public-ip-sku Standard --nsg-rule NONE
+# format the data disk, mount it at /srv/kelvin, add swap, then:
+SSH_KEY=~/.ssh/kelvin_azure_ed25519 PROFILE=small deploy/deploy.sh kelvin@<ip> --restore
+```
+
+On 1 GB the backfill runs at 500–900 blocks/s and Postgres uses about 550 MB. Activity-log
+alerts e-mail the operator on Azure service-health events (planned maintenance) and when the
+VM's resource health changes; after a restart the tunnel address changes and Pages must be
+repointed.
+
+### Oracle Cloud Always Free
+
+An Ampere A1 machine (2 OCPU / 12 GB) also fits, with the default `a1` profile. Capacity is
+often exhausted: `deploy/oci-launch.sh` keeps trying to create an instance named `kelvin`
+(2 OCPU / 12 GB, then 1 OCPU / 6 GB) every minute until it succeeds, using `~/.oci/config` and the
+subnet `kelvin-public`. It never creates a second instance.
 
 The stack (`deploy/compose.yaml`) is Postgres, `kelvin run --api` and a Cloudflare quick tunnel.
 The tunnel gives an `https://<random>.trycloudflare.com` address without opening any port; it

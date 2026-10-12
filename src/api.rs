@@ -62,6 +62,8 @@ struct Network {
     activity: Mutex<Option<(Instant, Value)>>,
     /// `/network` result, refreshed at most every `NETWORK_TTL`.
     overview: Mutex<Option<(Instant, Value)>>,
+    /// First indexed height of each UTC day, refreshed at most every `DAYS_TTL`.
+    days: Mutex<Option<(Instant, Arc<DayStarts>)>>,
 }
 
 #[derive(Clone)]
@@ -106,6 +108,7 @@ pub async fn serve_on(listener: tokio::net::TcpListener, pool: PgPool, mut stop:
             updates: broadcast::channel(256).0,
             activity: Mutex::new(None),
             overview: Mutex::new(None),
+            days: Mutex::new(None),
         });
         tokio::spawn({
             let n = n.clone();
@@ -1163,23 +1166,34 @@ async fn address_activity(State(st): State<AppState>, Path((net, address)): Path
     let Some(id) = address_id(&st.pool, &key).await? else {
         return Ok(cached(FRESH, json!({ "days": [], "counterparties": [] })));
     };
-    let days: Vec<(i64, i64)> = sqlx::query_as(
-        "SELECT b.block_time_s / 86400, count(*) FROM tx_accounts ta
-         JOIN blocks b ON b.network = ta.network AND b.height = ta.height
-         WHERE ta.network = $1 AND ta.address = $2 GROUP BY 1 ORDER BY 1",
+    // Heights are bucketed by the first height of each day straight from the address index, so a
+    // busy address costs one index-only scan instead of a join to `blocks` per transaction.
+    let starts = day_starts(&st.pool, &n).await?;
+    let buckets: Vec<(i32, i64)> = sqlx::query_as(
+        "SELECT width_bucket(height, $3::bigint[]), count(*) FROM tx_accounts
+         WHERE network = $1 AND address = $2 GROUP BY 1 ORDER BY 1",
     )
     .bind(n.id)
     .bind(id)
+    .bind(starts.iter().map(|&(_, h)| h).collect::<Vec<_>>())
     .fetch_all(&st.pool)
     .await?;
+    let days: Vec<(i64, i64)> = buckets
+        .into_iter()
+        .filter_map(|(b, c)| starts.get((b as usize).checked_sub(1)?).map(|&(d, _)| (d, c)))
+        .collect();
     type Counterparty = (Vec<u8>, i64, String, String);
+    // Grouped by address id first; only the top six are looked up in `addresses`.
     let counterparties: Vec<Counterparty> = sqlx::query_as(
         "WITH t AS (
             SELECT CASE WHEN source = $2 THEN dest ELSE source END AS other, source = $2 AS out, amount
-            FROM transfers WHERE network = $1 AND (source = $2 OR dest = $2) AND source <> dest AND mint IS NULL)
-         SELECT a.address, count(*), coalesce(sum(amount) FILTER (WHERE NOT out), 0)::text,
-                coalesce(sum(amount) FILTER (WHERE out), 0)::text
-         FROM t JOIN addresses a ON a.id = t.other GROUP BY a.address ORDER BY 2 DESC LIMIT 6",
+            FROM transfers WHERE network = $1 AND (source = $2 OR dest = $2) AND source <> dest AND mint IS NULL),
+         top AS (
+            SELECT other, count(*) AS n, coalesce(sum(amount) FILTER (WHERE NOT out), 0) AS rin,
+                   coalesce(sum(amount) FILTER (WHERE out), 0) AS rout
+            FROM t GROUP BY other ORDER BY n DESC LIMIT 6)
+         SELECT a.address, top.n, top.rin::text, top.rout::text
+         FROM top JOIN addresses a ON a.id = top.other ORDER BY top.n DESC",
     )
     .bind(n.id)
     .bind(id)
@@ -1194,6 +1208,58 @@ async fn address_activity(State(st): State<AppState>, Path((net, address)): Path
             })).collect::<Vec<_>>(),
         }),
     ))
+}
+
+/// `(UTC day number, first indexed height on or after that day's start)`, ascending.
+type DayStarts = Vec<(i64, i64)>;
+
+const DAYS_TTL: Duration = Duration::from_secs(600);
+
+/// Day boundaries over the indexed blocks. Block times grow with height, so each boundary is a
+/// binary search over the primary key (about 25 point lookups per day). Days that fall in a gap
+/// share the boundary of the first block after it.
+async fn day_starts(pool: &PgPool, n: &Network) -> Result<Arc<DayStarts>, ApiError> {
+    if let Some((at, v)) = n.days.lock().expect("not poisoned").as_ref()
+        && at.elapsed() < DAYS_TTL
+    {
+        return Ok(v.clone());
+    }
+    let first_at = |height: i64| async move {
+        sqlx::query_as::<_, (i64, i64)>(
+            "SELECT height, block_time_s FROM blocks WHERE network = $1 AND height >= $2 ORDER BY height LIMIT 1",
+        )
+        .bind(n.id)
+        .bind(height)
+        .fetch_optional(pool)
+        .await
+    };
+    let range: (Option<i64>, Option<i64>) =
+        sqlx::query_as("SELECT min(height), max(height) FROM blocks WHERE network = $1")
+            .bind(n.id)
+            .fetch_one(pool)
+            .await?;
+    let (Some(min), Some(max)) = range else { return Ok(Arc::default()) };
+    let (Some((_, t_min)), Some((_, t_max))) = (first_at(min).await?, first_at(max).await?) else {
+        return Ok(Arc::default());
+    };
+    let mut starts = vec![(t_min.div_euclid(86_400), min)];
+    for day in t_min.div_euclid(86_400) + 1..=t_max.div_euclid(86_400) {
+        // Stored heights below `lo` are earlier than the day, those from `hi` on are not. The result
+        // may be an unstored height, which buckets the same as the next stored one.
+        let (mut lo, mut hi) = (starts.last().expect("seeded").1, max);
+        while lo < hi {
+            let mid = lo + (hi - lo) / 2;
+            match first_at(mid).await? {
+                Some((h, t)) if h < hi && t >= day * 86_400 => hi = h,
+                Some((h, _)) if h < hi => lo = h + 1,
+                _ => hi = mid, // nothing stored in [mid, hi)
+            }
+        }
+        starts.push((day, lo));
+    }
+    let starts = Arc::new(starts);
+    *n.days.lock().expect("not poisoned") = Some((Instant::now(), starts.clone()));
+    Ok(starts)
 }
 
 // ---------- Rialo-native views (passed through from the RPC) ----------
