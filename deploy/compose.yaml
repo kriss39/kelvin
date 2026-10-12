@@ -13,10 +13,12 @@ services:
       POSTGRES_USER: kelvin
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-kelvin}
       POSTGRES_DB: kelvin
-    # Sized for an Always Free Ampere A1 machine with 12 GB of memory.
-    command: [postgres, -c, shared_buffers=2GB, -c, effective_cache_size=6GB, -c, work_mem=32MB,
-              -c, synchronous_commit=off, -c, max_wal_size=4GB]
-    shm_size: 512m
+    # Defaults suit 12 GB of memory (Oracle Ampere A1); deploy/env/*.env sizes smaller machines.
+    command: [postgres, -c, "shared_buffers=${PG_SHARED_BUFFERS:-2GB}",
+              -c, "effective_cache_size=${PG_EFFECTIVE_CACHE_SIZE:-6GB}", -c, "work_mem=${PG_WORK_MEM:-32MB}",
+              -c, "maintenance_work_mem=${PG_MAINTENANCE_WORK_MEM:-256MB}", -c, synchronous_commit=off,
+              -c, "max_wal_size=${PG_MAX_WAL_SIZE:-4GB}"]
+    shm_size: ${PG_SHM_SIZE:-512m}
     volumes:
       - ${KELVIN_DATA:-/srv/kelvin}/pg:/var/lib/postgresql/data
     healthcheck:
@@ -42,7 +44,7 @@ services:
 
   tunnel:
     image: cloudflare/cloudflared:2026.9.3
-    command: [tunnel, --no-autoupdate, --url, http://kelvin:8080]
+    command: [tunnel, --no-autoupdate, --protocol, http2, --url, http://kelvin:8080]
     depends_on: [kelvin]
     restart: unless-stopped
     logging: *logging

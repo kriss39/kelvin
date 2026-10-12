@@ -39,3 +39,10 @@ jobs:
         working-directory: sdk/typescript
       - run: npm ci && npm run build
         working-directory: sdk/mcp
+
+  image:
+    # The deploy builds this image; files the binary embeds must be copied into it.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t kelvin:ci . && docker run --rm kelvin:ci --version

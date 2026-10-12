@@ -5,6 +5,8 @@ WORKDIR /src
 COPY Cargo.toml Cargo.lock ./
 COPY migrations migrations
 COPY src src
+# The explorer embeds the logo and the link-preview image.
+COPY brand/kelvin-mark.svg brand/og.png brand/
 RUN cargo build --release --locked && strip target/release/kelvin
 
 FROM debian:trixie-20260918-slim

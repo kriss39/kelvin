@@ -4,15 +4,18 @@
 #   deploy/deploy.sh ubuntu@1.2.3.4                    # build, upload, (re)start
 #   deploy/deploy.sh ubuntu@1.2.3.4 --restore          # also copy this Mac's database first
 #
-# The image is built here for linux/arm64 (Oracle Ampere A1). --restore stops the local indexer,
-# dumps the local Postgres and loads it into the server's empty database, so the server resumes
-# from the same cursors. SSH_KEY defaults to ~/.ssh/kelvin_oracle_ed25519.
+# The image is built here for linux/arm64 (Oracle Ampere A1, Azure Bpsv2). --restore stops the local
+# indexer, dumps the local Postgres and loads it into the server's empty database, so the server
+# resumes from the same cursors. SSH_KEY defaults to ~/.ssh/kelvin_oracle_ed25519. PROFILE names a
+# file in deploy/env/ with the server's settings (default a1; small for 1 GB machines).
 set -eu
 cd "$(dirname "$0")/.."
 
 TARGET=${1:?usage: deploy/deploy.sh user@host [--restore]}
 RESTORE=${2:-}
 KEY=${SSH_KEY:-$HOME/.ssh/kelvin_oracle_ed25519}
+PROFILE=${PROFILE:-a1}
+[ -f "deploy/env/$PROFILE.env" ] || { echo "no deploy/env/$PROFILE.env" >&2; exit 1; }
 SSH_OPTS="-i $KEY -o StrictHostKeyChecking=accept-new"
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
@@ -20,6 +23,7 @@ trap 'rm -rf "$WORK"' EXIT
 echo "== building image"
 docker build -q --platform linux/arm64 -t kelvin:latest . >/dev/null
 docker save kelvin:latest | gzip -1 > "$WORK/kelvin-image.tar.gz"
+cp "deploy/env/$PROFILE.env" "$WORK/kelvin.env"
 
 if [ "$RESTORE" = "--restore" ]; then
     echo "== stopping the local indexer and dumping its database"
@@ -41,6 +45,7 @@ if ! command -v docker >/dev/null; then
 fi
 sudo mkdir -p /opt/kelvin /srv/kelvin/pg
 sudo mv /tmp/compose.yaml /opt/kelvin/compose.yaml
+sudo mv /tmp/kelvin.env /opt/kelvin/.env
 gunzip -c /tmp/kelvin-image.tar.gz | sudo docker load -q
 rm /tmp/kelvin-image.tar.gz
 cd /opt/kelvin
